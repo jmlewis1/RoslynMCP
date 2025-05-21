@@ -1,0 +1,4 @@
+- The GetSymbolInfo isn't working the way I hoped.
+- I need a function that I can give the location of either a function call, or a variable declaration, or a Type, and get back the detailed XML style comments, plus everything in the public interface, and all of the XML comments for all of that.
+- Start small, currently at line 61 is var deserializedPerson = JsonConvert.DeserializeObject<Person>(json); position 17 is deserializedPerson
+- I want to be able to get the type is Person, and the XML comments, and public interface for Person given this line and position.
