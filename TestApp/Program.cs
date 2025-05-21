@@ -69,6 +69,22 @@ try
     logger.LogInformation("LoadSolution tool result: {Result}", solutionResult);
     Console.WriteLine($"LoadSolution tool returned: {solutionResult}");
 
+    // Call the GetSymbolInfo tool
+    logger.LogInformation("Calling GetSymbolInfo tool for a specific symbol");
+    
+    var getSymbolInfoArguments = new Dictionary<string, object?>
+    {
+        ["solutionPath"] = solutionPath,
+        ["filePath"] = "Program.cs",
+        ["line"] = 23,  // Line with "Name = "John Doe""
+        ["character"] = 32  // Position of "John Doe"
+    };
+
+    var symbolInfoResult = await mcpClient.CallToolAsync("get_symbol_info", getSymbolInfoArguments);
+    
+    logger.LogInformation("GetSymbolInfo tool result: {Result}", symbolInfoResult);
+    Console.WriteLine($"GetSymbolInfo tool returned: {symbolInfoResult}");
+
     logger.LogInformation("TestApp completed successfully");
 }
 catch (Exception ex)
