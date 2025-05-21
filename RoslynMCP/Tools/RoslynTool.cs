@@ -19,7 +19,7 @@ public sealed class RoslynTool
         _logger = logger;
     }
 
-    [McpServerTool, Description("Load a C# solution using Roslyn and return basic information about it")]
+    //[McpServerTool, Description("Load a C# solution using Roslyn and return basic information about it")]
     public async Task<string> LoadSolution(string solutionPath)
     {
         try
@@ -67,7 +67,9 @@ public sealed class RoslynTool
         }
     }
 
-    [McpServerTool, Description("Get detailed symbol information at a specific file location (line and character position)")]
+
+
+    //[McpServerTool, Description("Get detailed symbol information at a specific file location (line and character position)")]
     public async Task<string> GetSymbolInfo(string solutionPath, string filePath, int line, int character)
     {
         try
@@ -196,12 +198,25 @@ public sealed class RoslynTool
         }
     }
 
-    [McpServerTool, Description("Get detailed type information including XML documentation and public interface for a variable, function, type, declaration, definition at a specific location")]
-    public async Task<string> GetDetailedSymbolInfo(string solutionPath, string filePath, int line, int character)
+
+    /// <summary>
+    /// Get detailed Symbol information
+    /// </summary>
+    /// <param name="solutionPath"></param>
+    /// <param name="filePath"></param>
+    /// <param name="line"></param>
+    /// <param name="character"></param>
+    /// <returns></returns>
+    [McpServerTool, Description("Get detailed information including XML documentation and public interface for a variable, function, type, declaration, definition at a specific location")]
+    public async Task<string> GetDetailedSymbolInfo(
+        [Description("absolute path to the solution file")] string solutionPath,
+        [Description("absolute path to the the source file the token appears in")] string filePath,
+        [Description("The line the token appears on in the source code")] int line, 
+        [Description("The token to get information about")] string tokenToFind)
     {
         try
         {
-            _logger.LogInformation("Getting detailed symbol info at {FilePath}:{Line}:{Character}", filePath, line, character);
+            _logger.LogInformation("Getting detailed symbol info at {FilePath}:{Line}:{TokenToFind}", filePath, line, tokenToFind);
 
             using var workspace = MSBuildWorkspace.Create();
             
@@ -241,13 +256,20 @@ public sealed class RoslynTool
             }
 
             var textLine = textLines[line - 1];
-            if (character < 1 || character > textLine.Span.Length + 1)
+            /*if (character < 1 || character > textLine.Span.Length + 1)
             {
                 return $"Error: Character {character} is out of range for line {line} (1-{textLine.Span.Length + 1})";
             }
-
-            var position = textLine.Start + (character - 1);
             
+            var position = textLine.Start + (character - 1);
+            */
+            var sourceCodeFromLine = textLine.ToString();
+            var position = sourceCodeFromLine.IndexOf(tokenToFind);
+            if (position < 0)
+                throw new Exception($"Couldn't find {tokenToFind} on line {line}");
+
+            position = position + textLine.Start;
+
             // Get the node at the position
             var root = await syntaxTree.GetRootAsync();
             var token = root.FindToken(position);
@@ -292,7 +314,7 @@ public sealed class RoslynTool
             }
             
             var result = new StringBuilder();
-            result.AppendLine($"Detailed Symbol Analysis at {Path.GetFileName(filePath)}:{line}:{character}");
+            result.AppendLine($"Detailed Symbol Analysis at {Path.GetFileName(filePath)}:{line}:{tokenToFind}");
             result.AppendLine($"Token: '{token.ValueText}' (Kind: {token.Kind()})");
             result.AppendLine($"Node: {node.Kind()} - '{node.ToString().Trim()}'");
             result.AppendLine();
@@ -426,13 +448,13 @@ public sealed class RoslynTool
                 }
             }
 
-            _logger.LogInformation("Detailed symbol info retrieved successfully for {FilePath}:{Line}:{Character}", filePath, line, character);
+            _logger.LogInformation("Detailed symbol info retrieved successfully for {FilePath}:{Line}:{TokenToFind}", filePath, line, tokenToFind);
             
             return result.ToString();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get detailed symbol info: {FilePath}:{Line}:{Character}", filePath, line, character);
+            _logger.LogError(ex, "Failed to get detailed symbol info: {FilePath}:{Line}:{TokenToFind}", filePath, line, tokenToFind);
             return $"Error getting detailed symbol information: {ex.Message}";
         }
     }
