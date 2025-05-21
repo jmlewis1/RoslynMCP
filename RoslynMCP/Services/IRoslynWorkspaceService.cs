@@ -11,7 +11,7 @@ public interface IRoslynWorkspaceService
     /// <summary>
     /// Gets or creates a workspace for the specified solution path
     /// </summary>
-    Task<MSBuildWorkspace> GetWorkspaceAsync(string solutionPath);
+    Task<Workspace> GetWorkspaceAsync(string solutionPath);
     
     /// <summary>
     /// Gets the Solution instance for the specified solution path

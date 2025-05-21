@@ -15,6 +15,12 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
     private readonly ILogger<RoslynWorkspaceService> _logger;
     private readonly ConcurrentDictionary<string, WorkspaceInfo> _workspaces = new();
     private bool _disposed = false;
+    private List<string> watchedExtensions = new(new[]
+    {
+        ".cs",
+        ".sln",
+        ".csproj"
+    });
 
     public RoslynWorkspaceService(ILogger<RoslynWorkspaceService> logger)
     {
@@ -27,7 +33,7 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
     /// </summary>
     /// <param name="solutionPath">The absolute path to the solution file.</param>
     /// <returns>The MSBuildWorkspace instance for the solution.</returns>
-    public async Task<MSBuildWorkspace> GetWorkspaceAsync(string solutionPath)
+    public async Task<Workspace> GetWorkspaceAsync(string solutionPath)
     {
         var normalizedPath = Path.GetFullPath(solutionPath);
         
@@ -68,12 +74,52 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
             .FirstOrDefault(d => Path.GetFileName(d.FilePath) == fileName);
     }
 
-    private async Task<MSBuildWorkspace> CreateAndCacheWorkspaceAsync(string solutionPath)
+    public static async Task<AdhocWorkspace> CloneSolutionToAdhocAsync(Solution sourceSolution)
     {
-        var workspace = MSBuildWorkspace.Create();
+        var adhocWorkspace = new AdhocWorkspace();
+
+        foreach (var project in sourceSolution.Projects)
+        {
+            var newProjectId = ProjectId.CreateNewId(debugName: project.Name);
+
+            var projectInfo = ProjectInfo.Create(
+                id: newProjectId,
+                version: project.Version,
+                name: project.Name,
+                assemblyName: project.AssemblyName,
+                language: project.Language,
+                filePath: project.FilePath,
+                outputFilePath: project.OutputFilePath,
+                compilationOptions: project.CompilationOptions,
+                parseOptions: project.ParseOptions,
+                metadataReferences: project.MetadataReferences,
+                analyzerReferences: project.AnalyzerReferences
+            );
+
+            adhocWorkspace.AddProject(projectInfo);
+
+            foreach (var document in project.Documents)
+            {
+                var text = await document.GetTextAsync();
+                adhocWorkspace.AddDocument(
+                    DocumentInfo.Create(
+                        DocumentId.CreateNewId(newProjectId),
+                        name: document.Name,
+                        loader: TextLoader.From(TextAndVersion.Create(text, VersionStamp.Create())),
+                        filePath: document.FilePath
+                    )
+                );
+            }
+        }
+
+        return adhocWorkspace;
+    }
+    private async Task<Workspace> CreateAndCacheWorkspaceAsync(string solutionPath)
+    {
+        var msBuildWorkspace = MSBuildWorkspace.Create();
         
         // Handle workspace diagnostic events
-        workspace.WorkspaceFailed += (sender, e) =>
+        msBuildWorkspace.WorkspaceFailed += (sender, e) =>
         {
             _logger.LogWarning("Workspace diagnostic: {Kind} - {Message}", e.Diagnostic.Kind, e.Diagnostic.Message);
         };
@@ -81,10 +127,10 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
         try
         {
             // Load the solution
-            var solution = await workspace.OpenSolutionAsync(solutionPath);
-            
+            var solution = await msBuildWorkspace.OpenSolutionAsync(solutionPath);
+
             // Log diagnostic information
-            var diagnostics = workspace.Diagnostics.Where(d => d.Kind == WorkspaceDiagnosticKind.Failure).ToList();
+            var diagnostics = msBuildWorkspace.Diagnostics.Where(d => d.Kind == WorkspaceDiagnosticKind.Failure).ToList();
             if (diagnostics.Any())
             {
                 foreach (var diagnostic in diagnostics)
@@ -95,8 +141,11 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
                     diagnostics.Count, solutionPath);
             }
 
+            // Create an AhHoc workspace from the MSBuildWorkspace
+            var workspace = await CloneSolutionToAdhocAsync(solution);
+
             var solutionDirectory = Path.GetDirectoryName(solutionPath)!;
-            var workspaceInfo = new WorkspaceInfo(workspace, solution);
+            var workspaceInfo = new WorkspaceInfo(workspace, solution, solutionPath);
             
             // Set up file watching
             SetupFileWatchers(workspaceInfo, solutionDirectory);
@@ -122,13 +171,48 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
         // Create watcher for the root directory
         var rootWatcher = CreateFileSystemWatcher(rootDirectory, workspaceInfo);
         workspaceInfo.FileWatchers.Add(rootWatcher);
-        
+
         // Recursively add watchers for subdirectories
         foreach (var directory in Directory.GetDirectories(rootDirectory, "*", SearchOption.AllDirectories))
         {
-            var watcher = CreateFileSystemWatcher(directory, workspaceInfo);
-            workspaceInfo.FileWatchers.Add(watcher);
+            if (!IgnorePath(directory))
+            {
+                var watcher = CreateFileSystemWatcher(directory, workspaceInfo);
+                workspaceInfo.FileWatchers.Add(watcher);
+            }
         }
+    }
+
+    private bool IgnorePath(string path)
+    {
+        List<string> ignoreDirs = new List<string>(new[]{
+            ".vs",
+            "obj",
+            "bin",
+            ".git",
+            ".claude"
+        });
+
+        var parts = Path.GetFullPath(path)
+                .TrimEnd(Path.DirectorySeparatorChar)
+                .Split(Path.DirectorySeparatorChar);
+
+        foreach (var part in parts)
+        {
+            foreach(var ignoreDir in ignoreDirs)
+            {
+                if (part == ignoreDir)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private bool AllowedExtenions(string path)
+    {
+        string ext = Path.GetExtension(path);
+
+        return watchedExtensions.Contains(ext);
     }
 
     private FileSystemWatcher CreateFileSystemWatcher(string directory, WorkspaceInfo workspaceInfo)
@@ -137,7 +221,7 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
         {
             Path = directory,
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
-            Filter = "*.cs", // Monitor C# files
+            Filter = "*.*", // Monitor C# files
             IncludeSubdirectories = false, // Each subdirectory gets its own watcher
             EnableRaisingEvents = true
         };
@@ -165,6 +249,9 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
     {
         try
         {
+            if (!AllowedExtenions(filePath))
+                return;
+
             _logger.LogInformation("File changed: {FilePath}", filePath);
             
             // Queue file updates to avoid IO conflicts
@@ -190,6 +277,9 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
     {
         try
         {
+            if (!AllowedExtenions(filePath))
+                return;
+
             if (Directory.Exists(filePath))
             {
                 OnDirectoryCreated(filePath, workspaceInfo);
@@ -222,6 +312,9 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
     {
         try
         {
+            if (!AllowedExtenions(filePath))
+                return;
+
             _logger.LogInformation("File deleted: {FilePath}", filePath);
             
             // Queue file updates
@@ -247,6 +340,9 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
     {
         try
         {
+            if (!AllowedExtenions(newPath))
+                return;
+
             _logger.LogInformation("File renamed from {OldPath} to {NewPath}", oldPath, newPath);
             
             // Queue file updates
@@ -255,6 +351,7 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
                 try
                 {
                     // Handle as a delete followed by a create
+                    await RemoveDocumentFromWorkspaceAsync(newPath, workspaceInfo);
                     await RemoveDocumentFromWorkspaceAsync(oldPath, workspaceInfo);
                     await AddDocumentToWorkspaceAsync(newPath, workspaceInfo);
                 }
@@ -361,13 +458,22 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
                 var fileContent = await File.ReadAllTextAsync(filePath);
                 var sourceText = Microsoft.CodeAnalysis.Text.SourceText.From(fileContent);
                 
+                var documentId = DocumentId.CreateNewId(project.Id);
+                var newSolution = project.Solution.AddDocument(documentId, fileName, fileContent, filePath: filePath);
+
                 // Add the document to the project
-                var newProject = project.AddDocument(fileName, sourceText, filePath: filePath).Project;
-                
+                //var newProject = project.AddDocument(fileName, sourceText, filePath: filePath).Project;
+
                 // Update the solution
-                var newSolution = newProject.ParseOptions != null 
-                    ? solution.WithProjectParseOptions(newProject.Id, newProject.ParseOptions)
-                    : solution;
+                /*Solution newSolution;
+                if (newProject.ParseOptions != null)
+                {
+                    newSolution = solution.WithProjectParseOptions(newProject.Id, newProject.ParseOptions);
+                }
+                else
+                {
+                    newSolution = solution;
+                }*/
                 
                 // Apply the changes to the workspace
                 if (workspaceInfo.Workspace.TryApplyChanges(newSolution))
@@ -483,14 +589,17 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
 
     private class WorkspaceInfo
     {
-        public MSBuildWorkspace Workspace { get; }
+        public Workspace Workspace { get; }
         public Solution OriginalSolution { get; }
+        public string SolutionFilePath { get; }
         public List<FileSystemWatcher> FileWatchers { get; } = new();
 
-        public WorkspaceInfo(MSBuildWorkspace workspace, Solution solution)
+        public WorkspaceInfo(Workspace workspace, Solution solution, string solutionFilePath)
         {
             Workspace = workspace;
             OriginalSolution = solution;
+            SolutionFilePath = solutionFilePath;
+
         }
     }
 }
