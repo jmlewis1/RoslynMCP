@@ -92,4 +92,32 @@ public class RoslynToolTests
         // Assert
         Assert.That(result, Does.StartWith("Error loading solution:"));
     }
+
+    [Test]
+    public async Task LoadSolution_HandlesWorkspaceDiagnostics()
+    {
+        // Arrange
+        var solutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
+        solutionPath = Path.GetFullPath(solutionPath);
+        
+        // Act
+        var result = await _roslynTool.LoadSolution(solutionPath);
+        
+        // Assert
+        Assert.That(result, Does.Contain("Solution loaded successfully!"));
+        
+        // Verify that diagnostic warnings are logged when they occur
+        // In .NET Core environments, MSBuildWorkspace often reports diagnostics
+        if (result.Contains("Warnings:"))
+        {
+            _mockLogger.Verify(
+                x => x.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((v, t) => v.ToString().Contains("Workspace")),
+                    It.IsAny<Exception>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.AtLeastOnce);
+        }
+    }
 }

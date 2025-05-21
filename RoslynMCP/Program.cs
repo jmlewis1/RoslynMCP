@@ -1,5 +1,7 @@
-using RoslynMCP.Tools;
+using Microsoft.Build.Locator;
 using Serilog;
+
+MSBuildLocator.RegisterDefaults();
 
 var builder = WebApplication.CreateBuilder(args);
 
