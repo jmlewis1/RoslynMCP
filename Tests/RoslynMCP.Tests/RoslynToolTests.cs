@@ -244,4 +244,136 @@ public class RoslynToolTests
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
     }
+
+    [Test]
+    public async Task GetDetailedSymbolInfo_DeserializedPersonAtLine57Position39_SerializeObject()
+    {
+        // Arrange
+        var solutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
+        solutionPath = Path.GetFullPath(solutionPath);
+        var filePath = "Program.cs";
+        var line = 57; // Line with "var deserializedPerson = JsonConvert.DeserializeObject<Person>(json);"
+        var character = 27; // Position at "deserializedPerson" variable
+
+        // Act
+        var result = await _roslynTool.GetDetailedSymbolInfo(solutionPath, filePath, line, character);
+
+        // Assert - Basic structure
+        Assert.That(result, Does.Contain("Detailed Symbol Analysis at Program.cs:61:17"));
+        Assert.That(result, Does.Contain("Token: 'deserializedPerson'"));
+
+        // Should detect it's a local variable of type Person
+        Assert.That(result, Does.Contain("Local variable 'deserializedPerson' of type: TestProject.Person"));
+
+        // Should have type information section
+        Assert.That(result, Does.Contain("=== TYPE INFORMATION ==="));
+
+        // Should have public interface section
+        Assert.That(result, Does.Contain("=== PUBLIC INTERFACE ==="));
+        Assert.That(result, Does.Contain("Type: Class TestProject.Person"));
+
+        // Should show Person's public members (Name, Age, Email properties)
+        Assert.That(result, Does.Contain("Public Members:"));
+        Assert.That(result, Does.Contain("Property: TestProject.Person.Name"));
+        Assert.That(result, Does.Contain("Property: TestProject.Person.Age"));
+        Assert.That(result, Does.Contain("Property: TestProject.Person.Email"));
+
+        // Should show either XML documentation or indicate none found
+        var hasXmlDocSection = result.Contains("XML Documentation:") || result.Contains("No XML documentation found");
+        Assert.That(hasXmlDocSection, Is.True, "Should contain XML documentation section");
+
+        // Verify logging
+        _mockLogger.Verify(
+            x => x.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Getting detailed symbol info at")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+
+        _mockLogger.Verify(
+            x => x.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Detailed symbol info retrieved successfully")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+
+    [Test]
+    public async Task GetDetailedSymbolInfo_DeserializedPersonAtLine61Position17_ReturnsPersonTypeDetails()
+    {
+        // Arrange
+        var solutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
+        solutionPath = Path.GetFullPath(solutionPath);
+        var filePath = "Program.cs";
+        var line = 61; // Line with "var deserializedPerson = JsonConvert.DeserializeObject<Person>(json);"
+        var character = 17; // Position at "deserializedPerson" variable
+        
+        // Act
+        var result = await _roslynTool.GetDetailedSymbolInfo(solutionPath, filePath, line, character);
+        
+        // Assert - Basic structure
+        Assert.That(result, Does.Contain("Detailed Symbol Analysis at Program.cs:61:17"));
+        Assert.That(result, Does.Contain("Token: 'deserializedPerson'"));
+        
+        // Should detect it's a local variable of type Person
+        Assert.That(result, Does.Contain("Local variable 'deserializedPerson' of type: TestProject.Person"));
+        
+        // Should have type information section
+        Assert.That(result, Does.Contain("=== TYPE INFORMATION ==="));
+        
+        // Should have public interface section
+        Assert.That(result, Does.Contain("=== PUBLIC INTERFACE ==="));
+        Assert.That(result, Does.Contain("Type: Class TestProject.Person"));
+        
+        // Should show Person's public members (Name, Age, Email properties)
+        Assert.That(result, Does.Contain("Public Members:"));
+        Assert.That(result, Does.Contain("Property: TestProject.Person.Name"));
+        Assert.That(result, Does.Contain("Property: TestProject.Person.Age"));
+        Assert.That(result, Does.Contain("Property: TestProject.Person.Email"));
+        
+        // Should show either XML documentation or indicate none found
+        var hasXmlDocSection = result.Contains("XML Documentation:") || result.Contains("No XML documentation found");
+        Assert.That(hasXmlDocSection, Is.True, "Should contain XML documentation section");
+        
+        // Verify logging
+        _mockLogger.Verify(
+            x => x.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Getting detailed symbol info at")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+        
+        _mockLogger.Verify(
+            x => x.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Detailed symbol info retrieved successfully")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task GetDetailedSymbolInfo_WithInvalidLocation_ReturnsError()
+    {
+        // Arrange
+        var solutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
+        solutionPath = Path.GetFullPath(solutionPath);
+        var filePath = "NonExistent.cs";
+        var line = 1;
+        var character = 1;
+        
+        // Act
+        var result = await _roslynTool.GetDetailedSymbolInfo(solutionPath, filePath, line, character);
+        
+        // Assert
+        Assert.That(result, Does.Contain("Error: Document 'NonExistent.cs' not found"));
+    }
 }

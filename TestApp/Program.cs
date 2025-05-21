@@ -85,6 +85,22 @@ try
     logger.LogInformation("GetSymbolInfo tool result: {Result}", symbolInfoResult);
     Console.WriteLine($"GetSymbolInfo tool returned: {symbolInfoResult}");
 
+    // Call the GetDetailedSymbolInfo tool for deserializedPerson variable
+    logger.LogInformation("Calling GetDetailedSymbolInfo tool for deserializedPerson variable");
+    
+    var getDetailedSymbolInfoArguments = new Dictionary<string, object?>
+    {
+        ["solutionPath"] = solutionPath,
+        ["filePath"] = "Program.cs",
+        ["line"] = 61,  // Line with "var deserializedPerson = JsonConvert.DeserializeObject<Person>(json);"
+        ["character"] = 17  // Position at "deserializedPerson" variable
+    };
+
+    var detailedSymbolInfoResult = await mcpClient.CallToolAsync("get_detailed_symbol_info", getDetailedSymbolInfoArguments);
+    
+    logger.LogInformation("GetDetailedSymbolInfo tool result: {Result}", detailedSymbolInfoResult);
+    Console.WriteLine($"GetDetailedSymbolInfo tool returned: {detailedSymbolInfoResult}");
+
     logger.LogInformation("TestApp completed successfully");
 }
 catch (Exception ex)
