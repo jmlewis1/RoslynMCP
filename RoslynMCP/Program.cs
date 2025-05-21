@@ -15,7 +15,7 @@ builder.Host.UseSerilog();
 // Add MCP services
 builder.Services.AddMcpServer()
     .WithHttpTransport()
-    .WithTools<EchoTool>();
+    .WithToolsFromAssembly();
 
 var app = builder.Build();
 

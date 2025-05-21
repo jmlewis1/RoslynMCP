@@ -4,15 +4,43 @@ using Microsoft.Extensions.Http;
 
 namespace TestProject
 {
+    /// <summary>
+    /// Represents a person with basic contact information.
+    /// Used for testing JSON serialization and deserialization functionality.
+    /// </summary>
     public class Person
     {
+        /// <summary>
+        /// Gets or sets the full name of the person.
+        /// </summary>
+        /// <value>The person's name as a string. Defaults to empty string.</value>
         public string Name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the age of the person in years.
+        /// </summary>
+        /// <value>The person's age as an integer.</value>
         public int Age { get; set; }
+
+        /// <summary>
+        /// Gets or sets the email address of the person.
+        /// </summary>
+        /// <value>The person's email address as a string. Defaults to empty string.</value>
         public string Email { get; set; } = string.Empty;
     }
 
+    /// <summary>
+    /// Main program class that demonstrates various functionality including 
+    /// JSON serialization/deserialization and HTTP client usage with dependency injection.
+    /// </summary>
     internal class Program
     {
+        /// <summary>
+        /// The main entry point of the application.
+        /// Demonstrates JSON serialization, HTTP client usage, and dependency injection.
+        /// </summary>
+        /// <param name="args">Command line arguments (not used in this application).</param>
+        /// <returns>A task that represents the asynchronous operation.</returns>
         static async Task Main(string[] args)
         {
             Console.WriteLine("Simple C# Test Application with NuGet packages");

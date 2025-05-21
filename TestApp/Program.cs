@@ -45,15 +45,29 @@ try
     // Call the echo tool
     logger.LogInformation("Calling echo tool with message: 'Hello from TestApp!'");
     
-    var arguments = new Dictionary<string, object?>
+    var echoArguments = new Dictionary<string, object?>
     {
         ["message"] = "Hello from TestApp!"
     };
 
-    var result = await mcpClient.CallToolAsync("echo", arguments);
+    var echoResult = await mcpClient.CallToolAsync("echo", echoArguments);
     
-    logger.LogInformation("Echo tool result: {Result}", result);
-    Console.WriteLine($"Echo tool returned: {result}");
+    logger.LogInformation("Echo tool result: {Result}", echoResult);
+    Console.WriteLine($"Echo tool returned: {echoResult}");
+
+    // Call the LoadSolution tool
+    logger.LogInformation("Calling LoadSolution tool with TestSln solution");
+    
+    var solutionPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "TestSln", "TestSln.sln");
+    var loadSolutionArguments = new Dictionary<string, object?>
+    {
+        ["solutionPath"] = solutionPath
+    };
+
+    var solutionResult = await mcpClient.CallToolAsync("load_solution", loadSolutionArguments);
+    
+    logger.LogInformation("LoadSolution tool result: {Result}", solutionResult);
+    Console.WriteLine($"LoadSolution tool returned: {solutionResult}");
 
     logger.LogInformation("TestApp completed successfully");
 }
