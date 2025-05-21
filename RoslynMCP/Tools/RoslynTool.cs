@@ -1,9 +1,9 @@
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.MSBuild;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
-using ModelContextProtocol.Server;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Server;
+using RoslynMCP.Services;
 using System.ComponentModel;
 using System.Text;
 
@@ -13,41 +13,30 @@ namespace RoslynMCP.Tools;
 public sealed class RoslynTool
 {
     private readonly ILogger<RoslynTool> _logger;
+    private readonly IRoslynWorkspaceService _workspaceService;
 
-    public RoslynTool(ILogger<RoslynTool> logger)
+    public RoslynTool(ILogger<RoslynTool> logger, IRoslynWorkspaceService workspaceService)
     {
         _logger = logger;
+        _workspaceService = workspaceService;
     }
 
-    //[McpServerTool, Description("Load a C# solution using Roslyn and return basic information about it")]
-    public async Task<string> LoadSolution(string solutionPath)
+    [McpServerTool, Description("Load a C# solution using Roslyn and return basic information about it")]
+    public async Task<string> LoadSolution(
+        [Description("Absolute path to the solution file")] string solutionPath)
     {
         try
         {
             _logger.LogInformation("Loading solution: {SolutionPath}", solutionPath);
 
-            using var workspace = MSBuildWorkspace.Create();
-            
-            // Handle workspace diagnostic events to log any issues
-            workspace.WorkspaceFailed += (sender, e) =>
-            {
-                _logger.LogWarning("Workspace diagnostic: {Kind} - {Message}", e.Diagnostic.Kind, e.Diagnostic.Message);
-            };
-            
-            var solution = await workspace.OpenSolutionAsync(solutionPath);
+            var workspace = await _workspaceService.GetWorkspaceAsync(solutionPath);
+            var solution = workspace.CurrentSolution;
             
             var projectCount = solution.Projects.Count();
             var projectNames = solution.Projects.Select(p => p.Name).ToList();
             
             // Log diagnostic information
             var diagnostics = workspace.Diagnostics.Where(d => d.Kind == WorkspaceDiagnosticKind.Failure).ToList();
-            if (diagnostics.Any())
-            {
-                foreach (var diagnostic in diagnostics)
-                {
-                    _logger.LogWarning("Workspace failure: {Message}", diagnostic.Message);
-                }
-            }
             
             var result = $"Solution loaded successfully!\nPath: {solutionPath}\nProject Count: {projectCount}\nProjects: {string.Join(", ", projectNames)}";
             
@@ -67,30 +56,18 @@ public sealed class RoslynTool
         }
     }
 
-
-
-    //[McpServerTool, Description("Get detailed symbol information at a specific file location (line and character position)")]
-    public async Task<string> GetSymbolInfo(string solutionPath, string filePath, int line, int character)
+    [McpServerTool, Description("Get detailed symbol information at a specific file location (line and character position)")]
+    public async Task<string> GetSymbolInfo(
+        [Description("Absolute path to the solution file")] string solutionPath, 
+        [Description("Path to the file containing the symbol")] string filePath, 
+        [Description("Line number (1-based)")] int line, 
+        [Description("Character position on the line (1-based)")] int character)
     {
         try
         {
             _logger.LogInformation("Getting symbol info at {FilePath}:{Line}:{Character}", filePath, line, character);
 
-            using var workspace = MSBuildWorkspace.Create();
-            
-            // Handle workspace diagnostic events
-            workspace.WorkspaceFailed += (sender, e) =>
-            {
-                _logger.LogWarning("Workspace diagnostic: {Kind} - {Message}", e.Diagnostic.Kind, e.Diagnostic.Message);
-            };
-            
-            var solution = await workspace.OpenSolutionAsync(solutionPath);
-            
-            // Find the document
-            var fileName = Path.GetFileName(filePath);
-            var document = solution.Projects
-                .SelectMany(p => p.Documents)
-                .FirstOrDefault(d => Path.GetFileName(d.Name) == fileName);
+            var document = await _workspaceService.GetDocumentAsync(solutionPath, filePath);
             
             if (document == null)
             {
@@ -125,7 +102,8 @@ public sealed class RoslynTool
             
             // Get the node at the position
             var root = await syntaxTree.GetRootAsync();
-            var node = root.FindToken(position).Parent;
+            var token = root.FindToken(position);
+            var node = token.Parent;
             
             if (node == null)
             {
@@ -198,40 +176,18 @@ public sealed class RoslynTool
         }
     }
 
-
-    /// <summary>
-    /// Get detailed Symbol information
-    /// </summary>
-    /// <param name="solutionPath"></param>
-    /// <param name="filePath"></param>
-    /// <param name="line"></param>
-    /// <param name="character"></param>
-    /// <returns></returns>
     [McpServerTool, Description("Get detailed information including XML documentation and public interface for a variable, function, type, declaration, definition at a specific location")]
     public async Task<string> GetDetailedSymbolInfo(
-        [Description("absolute path to the solution file")] string solutionPath,
-        [Description("absolute path to the the source file the token appears in")] string filePath,
-        [Description("The line the token appears on in the source code")] int line, 
-        [Description("The token to get information about")] string tokenToFind)
+        [Description("Absolute path to the solution file")] string solutionPath,
+        [Description("Path to the file containing the symbol")] string filePath,
+        [Description("Line number (1-based)")] int line, 
+        [Description("Token to get information about")] string tokenToFind)
     {
         try
         {
             _logger.LogInformation("Getting detailed symbol info at {FilePath}:{Line}:{TokenToFind}", filePath, line, tokenToFind);
 
-            using var workspace = MSBuildWorkspace.Create();
-            
-            workspace.WorkspaceFailed += (sender, e) =>
-            {
-                _logger.LogWarning("Workspace diagnostic: {Kind} - {Message}", e.Diagnostic.Kind, e.Diagnostic.Message);
-            };
-            
-            var solution = await workspace.OpenSolutionAsync(solutionPath);
-            
-            // Find the document
-            var fileName = Path.GetFileName(filePath);
-            var document = solution.Projects
-                .SelectMany(p => p.Documents)
-                .FirstOrDefault(d => Path.GetFileName(d.Name) == fileName);
+            var document = await _workspaceService.GetDocumentAsync(solutionPath, filePath);
             
             if (document == null)
             {
@@ -246,7 +202,7 @@ public sealed class RoslynTool
                 return "Error: Could not get syntax tree or semantic model";
             }
 
-            // Convert line/character to position
+            // Convert line to text position
             var sourceText = await syntaxTree.GetTextAsync();
             var textLines = sourceText.Lines;
             
@@ -256,17 +212,10 @@ public sealed class RoslynTool
             }
 
             var textLine = textLines[line - 1];
-            /*if (character < 1 || character > textLine.Span.Length + 1)
-            {
-                return $"Error: Character {character} is out of range for line {line} (1-{textLine.Span.Length + 1})";
-            }
-            
-            var position = textLine.Start + (character - 1);
-            */
             var sourceCodeFromLine = textLine.ToString();
             var position = sourceCodeFromLine.IndexOf(tokenToFind);
             if (position < 0)
-                throw new Exception($"Couldn't find {tokenToFind} on line {line}");
+                return $"Error: Couldn't find token '{tokenToFind}' on line {line}";
 
             position = position + textLine.Start;
 
@@ -290,7 +239,7 @@ public sealed class RoslynTool
             {
                 targetSymbol = symbol.Symbol;
             }
-            else if (node.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.VariableDeclarator))
+            else if (node.IsKind(SyntaxKind.VariableDeclarator))
             {
                 // For variable declarators, try GetDeclaredSymbol
                 targetSymbol = semanticModel.GetDeclaredSymbol(node);

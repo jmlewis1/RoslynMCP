@@ -93,7 +93,7 @@ try
         ["solutionPath"] = solutionPath,
         ["filePath"] = "Program.cs",
         ["line"] = 61,  // Line with "var deserializedPerson = JsonConvert.DeserializeObject<Person>(json);"
-        ["character"] = 17  // Position at "deserializedPerson" variable
+        ["tokenToFind"] = "deserializedPerson"  // Token to get information about
     };
 
     var detailedSymbolInfoResult = await mcpClient.CallToolAsync("get_detailed_symbol_info", getDetailedSymbolInfoArguments);

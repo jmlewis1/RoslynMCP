@@ -1,4 +1,5 @@
 using Microsoft.Build.Locator;
+using RoslynMCP.Services;
 using Serilog;
 
 MSBuildLocator.RegisterDefaults();
@@ -13,6 +14,9 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 
 builder.Host.UseSerilog();
+
+// Add RoslynWorkspaceService as a singleton
+builder.Services.AddSingleton<IRoslynWorkspaceService, RoslynWorkspaceService>();
 
 // Add MCP services
 builder.Services.AddMcpServer()
