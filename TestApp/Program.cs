@@ -19,14 +19,16 @@ try
     var host = builder.Build();
 
     var logger = host.Services.GetRequiredService<ILogger<Program>>();
-
+    
+    await Task.Delay(1000);
+    
     // Create SSE client transport
     var clientTransport = new SseClientTransport(new SseClientTransportOptions
     {
-        Endpoint = new Uri("http://localhost:5000")
+        Endpoint = new Uri("http://localhost:5001/sse")
     });
 
-    logger.LogInformation("Connecting to MCP server at http://localhost:5000...");
+    logger.LogInformation("Connecting to MCP server at http://localhost:5001...");
 
     // Create MCP client using the SSE transport
     await using var mcpClient = await McpClientFactory.CreateAsync(clientTransport);
@@ -45,45 +47,8 @@ try
     // Call the echo tool
     logger.LogInformation("Calling echo tool with message: 'Hello from TestApp!'");
     
-    var echoArguments = new Dictionary<string, object?>
-    {
-        ["message"] = "Hello from TestApp!"
-    };
-
-    var echoResult = await mcpClient.CallToolAsync("echo", echoArguments);
-    
-    logger.LogInformation("Echo tool result: {Result}", echoResult);
-    Console.WriteLine($"Echo tool returned: {echoResult}");
-
-    // Call the LoadSolution tool
-    logger.LogInformation("Calling LoadSolution tool with TestSln solution");
-    
-    var solutionPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "TestSln", "TestSln.sln");
-    var loadSolutionArguments = new Dictionary<string, object?>
-    {
-        ["solutionPath"] = solutionPath
-    };
-
-    var solutionResult = await mcpClient.CallToolAsync("load_solution", loadSolutionArguments);
-    
-    logger.LogInformation("LoadSolution tool result: {Result}", solutionResult);
-    Console.WriteLine($"LoadSolution tool returned: {solutionResult}");
-
-    // Call the GetSymbolInfo tool
-    logger.LogInformation("Calling GetSymbolInfo tool for a specific symbol");
-    
-    var getSymbolInfoArguments = new Dictionary<string, object?>
-    {
-        ["solutionPath"] = solutionPath,
-        ["filePath"] = "Program.cs",
-        ["line"] = 23,  // Line with "Name = "John Doe""
-        ["character"] = 32  // Position of "John Doe"
-    };
-
-    var symbolInfoResult = await mcpClient.CallToolAsync("get_symbol_info", getSymbolInfoArguments);
-    
-    logger.LogInformation("GetSymbolInfo tool result: {Result}", symbolInfoResult);
-    Console.WriteLine($"GetSymbolInfo tool returned: {symbolInfoResult}");
+    var solutionPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "..", "TestSln", "TestSln.sln");
+    solutionPath = Path.GetFullPath(solutionPath);
 
     // Call the GetDetailedSymbolInfo tool for deserializedPerson variable
     logger.LogInformation("Calling GetDetailedSymbolInfo tool for deserializedPerson variable");
@@ -93,13 +58,19 @@ try
         ["solutionPath"] = solutionPath,
         ["filePath"] = "Program.cs",
         ["line"] = 61,  // Line with "var deserializedPerson = JsonConvert.DeserializeObject<Person>(json);"
-        ["character"] = 17  // Position at "deserializedPerson" variable
+        ["tokenToFind"] = "deserializedPerson"  // Token to get information about
     };
 
-    var detailedSymbolInfoResult = await mcpClient.CallToolAsync("get_detailed_symbol_info", getDetailedSymbolInfoArguments);
+    var detailedSymbolInfoResult = await mcpClient.CallToolAsync("GetDetailedSymbolInfo", getDetailedSymbolInfoArguments);
     
-    logger.LogInformation("GetDetailedSymbolInfo tool result: {Result}", detailedSymbolInfoResult);
-    Console.WriteLine($"GetDetailedSymbolInfo tool returned: {detailedSymbolInfoResult}");
+    logger.LogInformation("GetDetailedSymbolInfo tool result: {Result}", detailedSymbolInfoResult.Content.First().Text);
+    Console.WriteLine($"GetDetailedSymbolInfo tool returned: {detailedSymbolInfoResult.Content.First().Text}");
+
+    await Task.Delay(20000);
+
+    detailedSymbolInfoResult = await mcpClient.CallToolAsync("GetDetailedSymbolInfo", getDetailedSymbolInfoArguments);
+    logger.LogInformation("GetDetailedSymbolInfo tool result: {Result}", detailedSymbolInfoResult.Content.First().Text);
+    Console.WriteLine($"GetDetailedSymbolInfo tool returned: {detailedSymbolInfoResult.Content.First().Text}");
 
     logger.LogInformation("TestApp completed successfully");
 }

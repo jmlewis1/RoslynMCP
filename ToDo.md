@@ -1,4 +1,17 @@
-- The GetSymbolInfo isn't working the way I hoped.
-- I need a function that I can give the location of either a function call, or a variable declaration, or a Type, and get back the detailed XML style comments, plus everything in the public interface, and all of the XML comments for all of that.
-- Start small, currently at line 61 is var deserializedPerson = JsonConvert.DeserializeObject<Person>(json); position 17 is deserializedPerson
-- I want to be able to get the type is Person, and the XML comments, and public interface for Person given this line and position.
+- Work in the git branch you are in
+- Do not create or switch branches
+
+Creating the MSBuildWorkspace is very time consuming on larger projects
+I want to refactor so the MSBuildWorkspace gets created once, then reused across multiple calls
+
+- In RoslynTool we have a good function for fetching context about a token.
+- Create a new class that can handle creation of the MSBuildWorkspace
+- Take all code that sets up the MSBuildWorkspace out of RoslynTool, and puts it in this new class
+- Extend that MSBuildWorkspace setup to start using FileSystemWatcher
+- Recurively walk the directory structure from the folder the .sln file is in, and setup a FileSystemWatcher for each subdirectory
+- Have it automatically update documents in the MSBuildWorkspace when the source files change on disk
+- Make sure it watches for new source files, and new sub directories with source files that will need to be monitored as well
+- In RoslynTool use this new class to get the MSBuildWorkspace
+- Create a service that can be used to cache the MSBuildWorkspace, so it gets created once on first use
+    then can be reused on each subsequent call to the tool
+- Also, I changed the tool parameters, the unit tests are all broken and need to be updated.

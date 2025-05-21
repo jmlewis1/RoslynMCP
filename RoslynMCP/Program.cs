@@ -1,29 +1,63 @@
 using Microsoft.Build.Locator;
+using RoslynMCP.Services;
+using RoslynMCP.Tools;
 using Serilog;
 
-MSBuildLocator.RegisterDefaults();
+try
+{
+    MSBuildLocator.RegisterDefaults();
 
-var builder = WebApplication.CreateBuilder(args);
+    var builder = WebApplication.CreateBuilder(args);
 
-// Configure Serilog
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(builder.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .CreateLogger();
+    // Configure Serilog
+    Log.Logger = new LoggerConfiguration()
+        .ReadFrom.Configuration(builder.Configuration)
+        .Enrich.FromLogContext()
+        .WriteTo.Console()
+        .CreateBootstrapLogger();
 
-builder.Host.UseSerilog();
+    // Replace default logging with Serilog
+    builder.Host.UseSerilog((context, services, configuration) =>
+    {
+        configuration
+            .ReadFrom.Configuration(context.Configuration)
+            .ReadFrom.Services(services)
+            .Enrich.FromLogContext()
+            .WriteTo.Console();
+    });
 
-// Add MCP services
-builder.Services.AddMcpServer()
-    .WithHttpTransport()
-    .WithToolsFromAssembly();
+    builder.Logging.ClearProviders(); // optional: reset defaults
+    builder.Logging.AddConsole();
 
-var app = builder.Build();
+    // Add RoslynWorkspaceService as a singleton
+    builder.Services.AddSingleton<IRoslynWorkspaceService, RoslynWorkspaceService>();
 
-// Configure MCP
-app.MapMcp();
+    // Add MCP services
+    builder.Services.AddMcpServer()
+        .WithHttpTransport()
+        .WithToolsFromAssembly();
 
-Log.Information("Starting RoslynMCP server");
+    var app = builder.Build();
 
-app.Run();
+    // Configure MCP
+    app.MapMcp();
+
+    Log.Information("Starting RoslynMCP server");
+    
+    Task appTask = app.RunAsync();
+    var endpoints = app.Services.GetRequiredService<EndpointDataSource>().Endpoints;
+    Log.Information("Mapped {Count} endpoints", endpoints.Count);
+    foreach (var endpoint in endpoints)
+    {
+        Log.Information("Endpoint: {Name}", endpoint.DisplayName);
+    }
+    await appTask;
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application failed!");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
