@@ -52,15 +52,22 @@ try
 
     // Call the GetDetailedSymbolInfo tool for deserializedPerson variable
     logger.LogInformation("Calling GetDetailedSymbolInfo tool for deserializedPerson variable");
-    
-    var getDetailedSymbolInfoArguments = new Dictionary<string, object?>
+
+    /*var getDetailedSymbolInfoArguments = new Dictionary<string, object?>
     {
         ["solutionPath"] = solutionPath,
         ["filePath"] = "Program.cs",
         ["line"] = 61,  // Line with "var deserializedPerson = JsonConvert.DeserializeObject<Person>(json);"
         ["tokenToFind"] = "deserializedPerson"  // Token to get information about
-    };
+    };*/
 
+    var getDetailedSymbolInfoArguments = new Dictionary<string, object?>
+    {
+        ["solutionPath"] = solutionPath,
+        ["filePath"] = "Program.cs",
+        ["line"] = 44,  // Line with "var deserializedPerson = JsonConvert.DeserializeObject<Person>(json);"
+        ["tokenToFind"] = "args"  // Token to get information about
+    };
     var detailedSymbolInfoResult = await mcpClient.CallToolAsync("GetDetailedSymbolInfo", getDetailedSymbolInfoArguments);
     
     logger.LogInformation("GetDetailedSymbolInfo tool result: {Result}", detailedSymbolInfoResult.Content.First().Text);
