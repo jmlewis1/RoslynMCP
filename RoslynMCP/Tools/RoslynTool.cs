@@ -21,12 +21,6 @@ public class RoslynTool
         _workspaceService = workspaceService;
     }
 
-    [McpServerTool, Description("Load a C# solution using Roslyn and return basic information about it")]
-    public string Test(string test)
-    {
-        return "hello world";
-    }
-
     [McpServerTool, Description("Get detailed information including XML documentation and public interface for a variable, function, type, declaration, definition at a specific location")]
     public async Task<string> GetDetailedSymbolInfo(
         [Description("Absolute path to the solution file")] string solutionPath,
@@ -63,12 +57,11 @@ public class RoslynTool
             }
 
             var textLine = textLines[line - 1];
-            var sourceCodeFromLine = textLine.ToString();
-            var position = sourceCodeFromLine.IndexOf(tokenToFind);
+            
+            // Find the token on the line using proper token enumeration
+            var position = await FindTokenPositionOnLine(syntaxTree, textLine, tokenToFind);
             if (position < 0)
                 return $"Error: Couldn't find token '{tokenToFind}' on line {line}";
-
-            position = position + textLine.Start;
 
             // Get the node at the position
             var root = await syntaxTree.GetRootAsync();
@@ -261,6 +254,63 @@ public class RoslynTool
         {
             _logger.LogError(ex, "Failed to get detailed symbol info: {FilePath}:{Line}:{TokenToFind}", filePath, line, tokenToFind);
             return $"Error getting detailed symbol information: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Finds the position of a specific token on a given line using proper token enumeration
+    /// </summary>
+    /// <param name="syntaxTree">The syntax tree to search in</param>
+    /// <param name="textLine">The text line to search on</param>
+    /// <param name="tokenToFind">The token text to find (case sensitive)</param>
+    /// <returns>The absolute position of the token, or -1 if not found</returns>
+    private static async Task<int> FindTokenPositionOnLine(SyntaxTree syntaxTree, TextLine textLine, string tokenToFind)
+    {
+        try
+        {
+            var root = await syntaxTree.GetRootAsync();
+            
+            // Get all tokens that intersect with this line
+            var lineSpan = textLine.Span;
+            var tokensOnLine = root.DescendantTokens()
+                .Where(token => token.Span.IntersectsWith(lineSpan) && 
+                               !token.IsKind(SyntaxKind.None) &&
+                               token.Span.Start >= lineSpan.Start &&
+                               token.Span.End <= lineSpan.End)
+                .OrderBy(token => token.Span.Start)
+                .ToList();
+
+            // Look for exact match (case sensitive)
+            foreach (var token in tokensOnLine)
+            {
+                if (token.ValueText == tokenToFind || token.Text == tokenToFind)
+                {
+                    return token.Span.Start;
+                }
+            }
+
+            // If no exact match found, try looking for identifier tokens that match
+            foreach (var token in tokensOnLine)
+            {
+                if (token.IsKind(SyntaxKind.IdentifierToken) && 
+                    (token.ValueText == tokenToFind || token.Text == tokenToFind))
+                {
+                    return token.Span.Start;
+                }
+            }
+
+            return -1;
+        }
+        catch (Exception)
+        {
+            // Fall back to simple string search if token enumeration fails
+            var sourceCodeFromLine = textLine.ToString();
+            var stringPosition = sourceCodeFromLine.IndexOf(tokenToFind, StringComparison.Ordinal);
+            if (stringPosition >= 0)
+            {
+                return textLine.Start + stringPosition;
+            }
+            return -1;
         }
     }
 }
