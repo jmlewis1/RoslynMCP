@@ -83,5 +83,10 @@ namespace TestProject
 
             Console.WriteLine("\nApplication completed successfully!");
         }
+
+        static void TestFunc(Person person)
+        {
+            Console.WriteLine(person.Name);
+        }
     }
 }

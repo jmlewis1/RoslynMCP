@@ -90,7 +90,7 @@ public class RoslynTool
             {
                 targetSymbol = symbol.Symbol;
             }
-            else if (node.IsKind(SyntaxKind.VariableDeclarator))
+            else if (node.IsKind(SyntaxKind.VariableDeclarator) || node.IsKind(SyntaxKind.Parameter))
             {
                 // For variable declarators, try GetDeclaredSymbol
                 targetSymbol = semanticModel.GetDeclaredSymbol(node);
@@ -168,6 +168,11 @@ public class RoslynTool
             {
                 typeSymbolToAnalyze = type;
                 result.AppendLine($"Type: {type.ToDisplayString()}");
+            }
+            else if (targetSymbol is IParameterSymbol parameter)
+            {
+                typeSymbolToAnalyze = parameter.Type;
+                result.AppendLine($"Parameter: {parameter.ToDisplayString()}");
             }
             else
             {

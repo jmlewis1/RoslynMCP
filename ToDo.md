@@ -1,17 +1,13 @@
-- Work in the git branch you are in
-- Do not create or switch branches
-
-Creating the MSBuildWorkspace is very time consuming on larger projects
-I want to refactor so the MSBuildWorkspace gets created once, then reused across multiple calls
-
-- In RoslynTool we have a good function for fetching context about a token.
-- Create a new class that can handle creation of the MSBuildWorkspace
-- Take all code that sets up the MSBuildWorkspace out of RoslynTool, and puts it in this new class
-- Extend that MSBuildWorkspace setup to start using FileSystemWatcher
-- Recurively walk the directory structure from the folder the .sln file is in, and setup a FileSystemWatcher for each subdirectory
-- Have it automatically update documents in the MSBuildWorkspace when the source files change on disk
-- Make sure it watches for new source files, and new sub directories with source files that will need to be monitored as well
-- In RoslynTool use this new class to get the MSBuildWorkspace
-- Create a service that can be used to cache the MSBuildWorkspace, so it gets created once on first use
-    then can be reused on each subsequent call to the tool
-- Also, I changed the tool parameters, the unit tests are all broken and need to be updated.
+- In Program.cs use whatever standard dotnet command line args parser, and create a CLI that takes 3 parameters
+    - --stdio/-s for stdio mode, and use the .WithStdioServerTransport()
+    - --http for http transport
+    - --help/-h for help
+    - if neither stdio or http is set default to http.
+- I need to be able to programatically set the port if it's not coming from the appsettings.json
+- In RoslynTool I've changed the way finding the token works.  Originally we had a character position passed in
+  But the model couldn't get that right, it struggles with the line number even.  I've changed it to line number and token name.
+  The problem with token name is I'm just doing a string search to find its starting index.  It would be better if we went to the correct line
+  Then had a way to go through all of the tokens/symbols on that line until we find one that matches the one we're looking for, case sensitive
+  Then got the position from that.
+- Make these changes then create a test to verify that the new token finding is working as expected using TestSln to test against.
+- Unit tests are failing again, they should be fixed.
