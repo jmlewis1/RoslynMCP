@@ -1,16 +1,13 @@
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.Text;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using RoslynMCP.Services;
-using System.ComponentModel;
 using System.Text;
 
 namespace RoslynMCP.Tools;
 
 [McpServerToolType]
-public class RoslynTool
+public partial class RoslynTool
 {
     private readonly ILogger<RoslynTool> _logger;
     private readonly IRoslynWorkspaceService _workspaceService;
@@ -21,296 +18,245 @@ public class RoslynTool
         _workspaceService = workspaceService;
     }
 
-    [McpServerTool, Description("Get detailed information including XML documentation and public interface for a variable, function, type, declaration, definition at a specific location")]
-    public async Task<string> GetDetailedSymbolInfo(
-        [Description("Absolute path to the solution file")] string solutionPath,
-        [Description("Path to the file containing the symbol")] string filePath,
-        [Description("Line number (1-based)")] int line, 
-        [Description("Token to get information about")] string tokenToFind)
+    /// <summary>
+    /// Appends comprehensive type information including basic details, inheritance, and documentation
+    /// </summary>
+    /// <param name="result">StringBuilder to append to</param>
+    /// <param name="targetType">The type symbol to analyze</param>
+    /// <param name="includeFullDocumentation">Whether to include complete documentation and public interface</param>
+    protected static void AppendTypeInformation(StringBuilder result, ITypeSymbol targetType, bool includeFullDocumentation = false)
     {
-        try
+        result.AppendLine("=== TYPE INFORMATION ===");
+        result.AppendLine($"Name: {targetType.Name}");
+        
+        // Construct the fully qualified name correctly
+        var fullyQualifiedName = targetType.ContainingNamespace?.IsGlobalNamespace == false 
+            ? $"{targetType.ContainingNamespace.ToDisplayString()}.{targetType.Name}"
+            : targetType.Name;
+        result.AppendLine($"Full Name: {fullyQualifiedName}");
+        result.AppendLine($"Namespace: {targetType.ContainingNamespace?.ToDisplayString() ?? "None"}");
+        result.AppendLine($"Type Kind: {targetType.TypeKind}");
+        result.AppendLine($"Accessibility: {targetType.DeclaredAccessibility}");
+        result.AppendLine($"Is Abstract: {targetType.IsAbstract}");
+        result.AppendLine($"Is Sealed: {targetType.IsSealed}");
+        result.AppendLine($"Is Static: {targetType.IsStatic}");
+        result.AppendLine();
+
+        // XML Documentation
+        result.AppendLine("=== XML DOCUMENTATION ===");
+        var xmlDocs = targetType.GetDocumentationCommentXml();
+        if (!string.IsNullOrEmpty(xmlDocs))
         {
-            _logger.LogInformation("Getting detailed symbol info at {FilePath}:{Line}:{TokenToFind}", filePath, line, tokenToFind);
-
-            var document = await _workspaceService.GetDocumentAsync(solutionPath, filePath);
-            
-            if (document == null)
-            {
-                return $"Error: Document '{filePath}' not found in solution";
-            }
-
-            var syntaxTree = await document.GetSyntaxTreeAsync();
-            var semanticModel = await document.GetSemanticModelAsync();
-            
-            if (syntaxTree == null || semanticModel == null)
-            {
-                return "Error: Could not get syntax tree or semantic model";
-            }
-
-            // Convert line to text position
-            var sourceText = await syntaxTree.GetTextAsync();
-            var textLines = sourceText.Lines;
-            
-            if (line < 1 || line > textLines.Count)
-            {
-                return $"Error: Line {line} is out of range (1-{textLines.Count})";
-            }
-
-            var textLine = textLines[line - 1];
-            
-            // Find the token on the line using proper token enumeration
-            var position = await FindTokenPositionOnLine(syntaxTree, textLine, tokenToFind);
-            if (position < 0)
-                return $"Error: Couldn't find token '{tokenToFind}' on line {line}";
-
-            // Get the node at the position
-            var root = await syntaxTree.GetRootAsync();
-            var token = root.FindToken(position);
-            var node = token.Parent;
-            
-            if (node == null)
-            {
-                return "No syntax node found at the specified position";
-            }
-
-            // Get symbol information - try different approaches
-            var symbol = semanticModel.GetSymbolInfo(node);
-            var typeInfo = semanticModel.GetTypeInfo(node);
-            
-            // Initialize targetSymbol
-            ISymbol? targetSymbol = null;
-            if (symbol.Symbol != null)
-            {
-                targetSymbol = symbol.Symbol;
-            }
-            else if (node.IsKind(SyntaxKind.VariableDeclarator) || node.IsKind(SyntaxKind.Parameter))
-            {
-                // For variable declarators, try GetDeclaredSymbol
-                targetSymbol = semanticModel.GetDeclaredSymbol(node);
-            }
-            
-            // If we still don't have a symbol, try parent nodes
-            if (targetSymbol == null && typeInfo.Type == null)
-            {
-                var current = node.Parent;
-                while (current != null && targetSymbol == null && typeInfo.Type == null)
-                {
-                    symbol = semanticModel.GetSymbolInfo(current);
-                    typeInfo = semanticModel.GetTypeInfo(current);
-                    if (symbol.Symbol != null)
-                    {
-                        targetSymbol = symbol.Symbol;
-                        break;
-                    }
-                    current = current.Parent;
-                }
-            }
-            
-            var result = new StringBuilder();
-            result.AppendLine($"Detailed Symbol Analysis at {Path.GetFileName(filePath)}:{line}:{tokenToFind}");
-            result.AppendLine($"Token: '{token.ValueText}' (Kind: {token.Kind()})");
-            result.AppendLine($"Node: {node.Kind()} - '{node.ToString().Trim()}'");
-            result.AppendLine();
-
-            // Type information (often more useful for getting the type details)
-            ITypeSymbol? targetType = null;
-            if (typeInfo.Type != null)
-            {
-                targetType = typeInfo.Type;
-                result.AppendLine($"Type: {targetType.ToDisplayString()}");
-            }
-
-            // Show what we found
-            if (targetSymbol != null)
-            {
-                result.AppendLine($"Direct Symbol: {targetSymbol.Name} ({targetSymbol.Kind})");
-            }
-
-            // If we don't have a direct symbol but we have a type, use the type
-            if (targetSymbol == null && targetType != null)
-            {
-                targetSymbol = targetType;
-            }
-
-            if (targetSymbol == null)
-            {
-                return result.ToString() + "\nNo symbol or type information found at this location.";
-            }
-
-            result.AppendLine();
-            result.AppendLine("=== SYMBOL DETAILS ===");
-            
-            // Get the actual type symbol if this is a variable/field/property
-            ITypeSymbol? typeSymbolToAnalyze = null;
-            if (targetSymbol is IFieldSymbol field)
-            {
-                typeSymbolToAnalyze = field.Type;
-                result.AppendLine($"Variable '{field.Name}' of type: {field.Type.ToDisplayString()}");
-            }
-            else if (targetSymbol is ILocalSymbol local)
-            {
-                typeSymbolToAnalyze = local.Type;
-                result.AppendLine($"Local variable '{local.Name}' of type: {local.Type.ToDisplayString()}");
-            }
-            else if (targetSymbol is IPropertySymbol property)
-            {
-                typeSymbolToAnalyze = property.Type;
-                result.AppendLine($"Property '{property.Name}' of type: {property.Type.ToDisplayString()}");
-            }
-            else if (targetSymbol is ITypeSymbol type)
-            {
-                typeSymbolToAnalyze = type;
-                result.AppendLine($"Type: {type.ToDisplayString()}");
-            }
-            else if (targetSymbol is IParameterSymbol parameter)
-            {
-                typeSymbolToAnalyze = parameter.Type;
-                result.AppendLine($"Parameter: {parameter.ToDisplayString()}");
-            }
-            else
-            {
-                typeSymbolToAnalyze = targetType;
-                result.AppendLine($"Symbol: {targetSymbol.ToDisplayString()} ({targetSymbol.Kind})");
-            }
-
-            if (typeSymbolToAnalyze != null)
-            {
-                result.AppendLine();
-                result.AppendLine("=== TYPE INFORMATION ===");
-                
-                // XML Documentation
-                var xmlDocs = typeSymbolToAnalyze.GetDocumentationCommentXml();
-                if (!string.IsNullOrEmpty(xmlDocs))
-                {
-                    result.AppendLine("XML Documentation:");
-                    result.AppendLine(xmlDocs);
-                }
-                else
-                {
-                    result.AppendLine("No XML documentation found.");
-                }
-
-                result.AppendLine();
-                result.AppendLine("=== PUBLIC INTERFACE ===");
-                result.AppendLine($"Type: {typeSymbolToAnalyze.TypeKind} {typeSymbolToAnalyze.ToDisplayString()}");
-                result.AppendLine($"Namespace: {typeSymbolToAnalyze.ContainingNamespace?.ToDisplayString() ?? "None"}");
-                result.AppendLine($"Accessibility: {typeSymbolToAnalyze.DeclaredAccessibility}");
-
-                // Public members
-                var publicMembers = typeSymbolToAnalyze.GetMembers()
-                    .Where(m => m.DeclaredAccessibility == Accessibility.Public)
-                    .OrderBy(m => m.Kind)
-                    .ThenBy(m => m.Name);
-
-                if (publicMembers.Any())
-                {
-                    result.AppendLine();
-                    result.AppendLine("Public Members:");
-                    
-                    foreach (var member in publicMembers)
-                    {
-                        result.AppendLine($"  {member.Kind}: {member.ToDisplayString()}");
-                        
-                        // Include XML docs for public members
-                        var memberXmlDocs = member.GetDocumentationCommentXml();
-                        if (!string.IsNullOrEmpty(memberXmlDocs))
-                        {
-                            var lines = memberXmlDocs.Split('\n');
-                            foreach (var docLine in lines)
-                            {
-                                if (!string.IsNullOrWhiteSpace(docLine))
-                                {
-                                    result.AppendLine($"    /// {docLine.Trim()}");
-                                }
-                            }
-                        }
-                        result.AppendLine();
-                    }
-                }
-
-                // Base type and interfaces
-                if (typeSymbolToAnalyze.BaseType != null && 
-                    typeSymbolToAnalyze.BaseType.SpecialType != SpecialType.System_Object)
-                {
-                    result.AppendLine($"Base Type: {typeSymbolToAnalyze.BaseType.ToDisplayString()}");
-                }
-
-                var interfaces = typeSymbolToAnalyze.Interfaces;
-                if (interfaces.Length > 0)
-                {
-                    result.AppendLine("Implemented Interfaces:");
-                    foreach (var iface in interfaces)
-                    {
-                        result.AppendLine($"  - {iface.ToDisplayString()}");
-                    }
-                }
-            }
-
-            _logger.LogInformation("Detailed symbol info retrieved successfully for {FilePath}:{Line}:{TokenToFind}", filePath, line, tokenToFind);
-            
-            return result.ToString();
+            result.AppendLine(xmlDocs);
         }
-        catch (Exception ex)
+        else
         {
-            _logger.LogError(ex, "Failed to get detailed symbol info: {FilePath}:{Line}:{TokenToFind}", filePath, line, tokenToFind);
-            return $"Error getting detailed symbol information: {ex.Message}";
+            result.AppendLine("No XML documentation found.");
+        }
+        result.AppendLine();
+
+        // Inheritance tree
+        AppendInheritanceInformation(result, targetType);
+
+        if (includeFullDocumentation)
+        {
+            AppendPublicInterface(result, targetType);
         }
     }
 
     /// <summary>
-    /// Finds the position of a specific token on a given line using proper token enumeration
+    /// Appends inheritance tree information for a type
     /// </summary>
-    /// <param name="syntaxTree">The syntax tree to search in</param>
-    /// <param name="textLine">The text line to search on</param>
-    /// <param name="tokenToFind">The token text to find (case sensitive)</param>
-    /// <returns>The absolute position of the token, or -1 if not found</returns>
-    private static async Task<int> FindTokenPositionOnLine(SyntaxTree syntaxTree, TextLine textLine, string tokenToFind)
+    /// <param name="result">StringBuilder to append to</param>
+    /// <param name="targetType">The type symbol to analyze</param>
+    protected static void AppendInheritanceInformation(StringBuilder result, ITypeSymbol targetType)
     {
-        try
+        result.AppendLine("=== INHERITANCE TREE ===");
+        result.AppendLine($"This Type: {targetType.ToDisplayString()}");
+        
+        // Build inheritance chain
+        var inheritanceChain = new List<ITypeSymbol>();
+        var current = targetType.BaseType;
+        while (current != null && current.SpecialType != SpecialType.System_Object)
         {
-            var root = await syntaxTree.GetRootAsync();
-            
-            // Get all tokens that intersect with this line
-            var lineSpan = textLine.Span;
-            var tokensOnLine = root.DescendantTokens()
-                .Where(token => token.Span.IntersectsWith(lineSpan) && 
-                               !token.IsKind(SyntaxKind.None) &&
-                               token.Span.Start >= lineSpan.Start &&
-                               token.Span.End <= lineSpan.End)
-                .OrderBy(token => token.Span.Start)
-                .ToList();
-
-            // Look for exact match (case sensitive)
-            foreach (var token in tokensOnLine)
-            {
-                if (token.ValueText == tokenToFind || token.Text == tokenToFind)
-                {
-                    return token.Span.Start;
-                }
-            }
-
-            // If no exact match found, try looking for identifier tokens that match
-            foreach (var token in tokensOnLine)
-            {
-                if (token.IsKind(SyntaxKind.IdentifierToken) && 
-                    (token.ValueText == tokenToFind || token.Text == tokenToFind))
-                {
-                    return token.Span.Start;
-                }
-            }
-
-            return -1;
+            inheritanceChain.Add(current);
+            current = current.BaseType;
         }
-        catch (Exception)
+
+        // Show base types
+        foreach (var baseType in inheritanceChain)
         {
-            // Fall back to simple string search if token enumeration fails
-            var sourceCodeFromLine = textLine.ToString();
-            var stringPosition = sourceCodeFromLine.IndexOf(tokenToFind, StringComparison.Ordinal);
-            if (stringPosition >= 0)
+            result.AppendLine($"    ↑ {baseType.ToDisplayString()}");
+        }
+
+        // Show interfaces implemented directly by this type
+        var directInterfaces = targetType.Interfaces;
+        if (directInterfaces.Length > 0)
+        {
+            result.AppendLine("    Interfaces:");
+            foreach (var iface in directInterfaces)
             {
-                return textLine.Start + stringPosition;
+                result.AppendLine($"        - {iface.ToDisplayString()}");
+                
+                // Show interface inheritance
+                ShowInterfaceInheritance(iface, result, "            ");
             }
-            return -1;
+        }
+
+        // Show all interfaces (including inherited ones)
+        var allInterfaces = targetType.AllInterfaces;
+        var inheritedInterfaces = allInterfaces.Except(directInterfaces).ToList();
+        if (inheritedInterfaces.Any())
+        {
+            result.AppendLine("    Inherited Interfaces:");
+            foreach (var iface in inheritedInterfaces)
+            {
+                result.AppendLine($"        - {iface.ToDisplayString()}");
+            }
+        }
+
+        result.AppendLine();
+    }
+
+    /// <summary>
+    /// Appends detailed public interface information for a type
+    /// </summary>
+    /// <param name="result">StringBuilder to append to</param>
+    /// <param name="targetType">The type symbol to analyze</param>
+    protected static void AppendPublicInterface(StringBuilder result, ITypeSymbol targetType)
+    {
+        result.AppendLine("=== PUBLIC INTERFACE ===");
+        
+        // Constructors
+        var constructors = targetType.GetMembers()
+            .OfType<IMethodSymbol>()
+            .Where(m => m.MethodKind == MethodKind.Constructor && m.DeclaredAccessibility == Accessibility.Public)
+            .ToList();
+        
+        if (constructors.Any())
+        {
+            result.AppendLine("Constructors:");
+            foreach (var ctor in constructors)
+            {
+                result.AppendLine($"  {ctor.ToDisplayString()}");
+                var ctorDocs = ctor.GetDocumentationCommentXml();
+                if (!string.IsNullOrEmpty(ctorDocs))
+                {
+                    AppendFormattedXmlDocs(result, ctorDocs, "    ");
+                }
+                result.AppendLine();
+            }
+        }
+
+        // Properties
+        var properties = targetType.GetMembers()
+            .OfType<IPropertySymbol>()
+            .Where(p => p.DeclaredAccessibility == Accessibility.Public)
+            .OrderBy(p => p.Name)
+            .ToList();
+
+        if (properties.Any())
+        {
+            result.AppendLine("Properties:");
+            foreach (var prop in properties)
+            {
+                result.AppendLine($"  {prop.ToDisplayString()}");
+                var propDocs = prop.GetDocumentationCommentXml();
+                if (!string.IsNullOrEmpty(propDocs))
+                {
+                    AppendFormattedXmlDocs(result, propDocs, "    ");
+                }
+                result.AppendLine();
+            }
+        }
+
+        // Methods
+        var methods = targetType.GetMembers()
+            .OfType<IMethodSymbol>()
+            .Where(m => m.DeclaredAccessibility == Accessibility.Public && 
+                       m.MethodKind == MethodKind.Ordinary)
+            .OrderBy(m => m.Name)
+            .ToList();
+
+        if (methods.Any())
+        {
+            result.AppendLine("Methods:");
+            foreach (var method in methods)
+            {
+                result.AppendLine($"  {method.ToDisplayString()}");
+                var methodDocs = method.GetDocumentationCommentXml();
+                if (!string.IsNullOrEmpty(methodDocs))
+                {
+                    AppendFormattedXmlDocs(result, methodDocs, "    ");
+                }
+                result.AppendLine();
+            }
+        }
+
+        // Fields
+        var fields = targetType.GetMembers()
+            .OfType<IFieldSymbol>()
+            .Where(f => f.DeclaredAccessibility == Accessibility.Public)
+            .OrderBy(f => f.Name)
+            .ToList();
+
+        if (fields.Any())
+        {
+            result.AppendLine("Fields:");
+            foreach (var field in fields)
+            {
+                result.AppendLine($"  {field.ToDisplayString()}");
+                var fieldDocs = field.GetDocumentationCommentXml();
+                if (!string.IsNullOrEmpty(fieldDocs))
+                {
+                    AppendFormattedXmlDocs(result, fieldDocs, "    ");
+                }
+                result.AppendLine();
+            }
+        }
+
+        // Events
+        var events = targetType.GetMembers()
+            .OfType<IEventSymbol>()
+            .Where(e => e.DeclaredAccessibility == Accessibility.Public)
+            .OrderBy(e => e.Name)
+            .ToList();
+
+        if (events.Any())
+        {
+            result.AppendLine("Events:");
+            foreach (var evt in events)
+            {
+                result.AppendLine($"  {evt.ToDisplayString()}");
+                var eventDocs = evt.GetDocumentationCommentXml();
+                if (!string.IsNullOrEmpty(eventDocs))
+                {
+                    AppendFormattedXmlDocs(result, eventDocs, "    ");
+                }
+                result.AppendLine();
+            }
+        }
+    }
+
+    private static void ShowInterfaceInheritance(ITypeSymbol interfaceType, StringBuilder result, string indent)
+    {
+        var baseInterfaces = interfaceType.Interfaces;
+        foreach (var baseInterface in baseInterfaces)
+        {
+            result.AppendLine($"{indent}↑ {baseInterface.ToDisplayString()}");
+            ShowInterfaceInheritance(baseInterface, result, indent + "    ");
+        }
+    }
+
+    private static void AppendFormattedXmlDocs(StringBuilder result, string xmlDocs, string indent)
+    {
+        var lines = xmlDocs.Split('\n');
+        foreach (var line in lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                result.AppendLine($"{indent}/// {line.Trim()}");
+            }
         }
     }
 }
