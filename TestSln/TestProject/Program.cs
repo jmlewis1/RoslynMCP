@@ -27,6 +27,8 @@ namespace TestProject
         /// </summary>
         /// <value>The person's email address as a string. Defaults to empty string.</value>
         public string Email { get; set; } = string.Empty;
+
+        public int aField = 0;
     }
 
     /// <summary>

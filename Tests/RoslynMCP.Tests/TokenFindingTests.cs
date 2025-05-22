@@ -40,7 +40,7 @@ public class TokenFindingTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             _testSolutionPath,
             "Program.cs",
-            44, // Line with Main method parameters
+            46, // Line with Main method parameters
             "args"); // The args parameter
         
         // Verify the result contains expected information about the args parameter
@@ -154,6 +154,131 @@ public class TokenFindingTests
             "Should return error when line number is invalid");
         Assert.That(result, Does.Contain("out of range"), 
             "Error message should indicate line is out of range");
+        
+        realWorkspaceService.Dispose();
+    }
+
+    [Test]
+    public async Task TokenFinding_WithRealWorkspace_FindsVariableDeclaration_person()
+    {
+        // Test finding 'person' variable declaration on line 52
+        var realWorkspaceService = new RoslynWorkspaceService(
+            new Mock<ILogger<RoslynWorkspaceService>>().Object);
+        
+        var realRoslynTool = new RoslynTool(_mockLogger.Object, realWorkspaceService);
+        
+        var result = await realRoslynTool.GetDetailedSymbolInfo(
+            _testSolutionPath,
+            "Program.cs",
+            52, // Line with 'var person = new Person'
+            "person"); // The variable name
+        
+        Assert.That(result, Does.Not.StartWith("Error:"), 
+            "Token finding should succeed for 'person' variable");
+        Assert.That(result, Does.Contain("person"), 
+            "Result should contain information about the 'person' token");
+        Assert.That(result, Does.Contain("Variable") | Does.Contain("Local"), 
+            "Result should indicate this is a variable/local");
+        
+        realWorkspaceService.Dispose();
+    }
+
+    [Test]
+    public async Task TokenFinding_WithRealWorkspace_FindsClassInNewExpression_Person()
+    {
+        // Test finding 'Person' class in new expression on line 52
+        var realWorkspaceService = new RoslynWorkspaceService(
+            new Mock<ILogger<RoslynWorkspaceService>>().Object);
+        
+        var realRoslynTool = new RoslynTool(_mockLogger.Object, realWorkspaceService);
+        
+        var result = await realRoslynTool.GetDetailedSymbolInfo(
+            _testSolutionPath,
+            "Program.cs",
+            52, // Line with 'new Person'
+            "Person"); // The class name in new expression
+        
+        Assert.That(result, Does.Not.StartWith("Error:"), 
+            "Token finding should succeed for 'Person' in new expression");
+        Assert.That(result, Does.Contain("Person"), 
+            "Result should contain information about the 'Person' token");
+        Assert.That(result, Does.Contain("Class") | Does.Contain("Type"), 
+            "Result should indicate this is a class/type");
+        
+        realWorkspaceService.Dispose();
+    }
+
+    [Test]
+    public async Task TokenFinding_WithRealWorkspace_FindsSystemClass_Console()
+    {
+        // Test finding 'Console' system class on line 64
+        var realWorkspaceService = new RoslynWorkspaceService(
+            new Mock<ILogger<RoslynWorkspaceService>>().Object);
+        
+        var realRoslynTool = new RoslynTool(_mockLogger.Object, realWorkspaceService);
+        
+        var result = await realRoslynTool.GetDetailedSymbolInfo(
+            _testSolutionPath,
+            "Program.cs",
+            64, // Line with Console.WriteLine
+            "Console"); // The Console class
+        
+        Assert.That(result, Does.Not.StartWith("Error:"), 
+            "Token finding should succeed for 'Console' system class");
+        Assert.That(result, Does.Contain("Console"), 
+            "Result should contain information about the 'Console' token");
+        Assert.That(result, Does.Contain("Class") | Does.Contain("Type"), 
+            "Result should indicate this is a class/type");
+        
+        realWorkspaceService.Dispose();
+    }
+
+    [Test]
+    public async Task TokenFinding_WithRealWorkspace_FindsFieldDeclaration_aField()
+    {
+        // Test finding 'aField' field declaration on line 31
+        var realWorkspaceService = new RoslynWorkspaceService(
+            new Mock<ILogger<RoslynWorkspaceService>>().Object);
+        
+        var realRoslynTool = new RoslynTool(_mockLogger.Object, realWorkspaceService);
+        
+        var result = await realRoslynTool.GetDetailedSymbolInfo(
+            _testSolutionPath,
+            "Program.cs",
+            31, // Line with 'public int aField = 0;'
+            "aField"); // The field name
+        
+        Assert.That(result, Does.Not.StartWith("Error:"), 
+            "Token finding should succeed for 'aField' field");
+        Assert.That(result, Does.Contain("aField"), 
+            "Result should contain information about the 'aField' token");
+        Assert.That(result, Does.Contain("Field") | Does.Contain("int"), 
+            "Result should indicate this is a field of type int");
+        
+        realWorkspaceService.Dispose();
+    }
+
+    [Test]
+    public async Task TokenFinding_WithRealWorkspace_FindsVariableDeclaration_services()
+    {
+        // Test finding 'services' variable declaration on line 67
+        var realWorkspaceService = new RoslynWorkspaceService(
+            new Mock<ILogger<RoslynWorkspaceService>>().Object);
+        
+        var realRoslynTool = new RoslynTool(_mockLogger.Object, realWorkspaceService);
+        
+        var result = await realRoslynTool.GetDetailedSymbolInfo(
+            _testSolutionPath,
+            "Program.cs",
+            67, // Line with 'var services = new ServiceCollection();'
+            "services"); // The variable name
+        
+        Assert.That(result, Does.Not.StartWith("Error:"), 
+            "Token finding should succeed for 'services' variable");
+        Assert.That(result, Does.Contain("services"), 
+            "Result should contain information about the 'services' token");
+        Assert.That(result, Does.Contain("Variable") | Does.Contain("Local"), 
+            "Result should indicate this is a variable/local");
         
         realWorkspaceService.Dispose();
     }
