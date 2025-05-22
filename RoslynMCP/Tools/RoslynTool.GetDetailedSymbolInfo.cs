@@ -222,7 +222,7 @@ public partial class RoslynTool
     /// <param name="textLine">The text line to search on</param>
     /// <param name="tokenToFind">The token text to find (case sensitive)</param>
     /// <returns>The absolute position of the token, or -1 if not found</returns>
-    private static async Task<int> FindTokenPositionOnLine(SyntaxTree syntaxTree, TextLine textLine, string tokenToFind)
+    protected static async Task<int> FindTokenPositionOnLine(SyntaxTree syntaxTree, TextLine textLine, string tokenToFind)
     {
         try
         {
