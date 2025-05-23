@@ -19,6 +19,58 @@ public partial class RoslynTool
     }
 
     /// <summary>
+    /// Parses a generic type name and returns the base type name with generic arity notation.
+    /// For example: "AClass<int, float>" returns "AClass`2"
+    /// Handles nested generics: "AClass<List<int>, float>" returns "AClass`2"
+    /// </summary>
+    /// <param name="typeName">The type name potentially containing generic parameters</param>
+    /// <returns>The base type name with generic arity notation if applicable</returns>
+    protected static string ParseGenericTypeName(string typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+            return typeName;
+
+        var genericStartIndex = typeName.IndexOf('<');
+        if (genericStartIndex == -1)
+            return typeName; // Not a generic type
+
+        var baseTypeName = typeName.Substring(0, genericStartIndex);
+        
+        // Count the number of generic arguments
+        int genericArgCount = 0;
+        int depth = 0;
+
+        for (int i = genericStartIndex; i < typeName.Length; i++)
+        {
+            char c = typeName[i];
+            
+            if (c == '<')
+            {
+                depth++;
+                if (depth == 1)
+                {
+                    genericArgCount = 1; // At least one argument
+                }
+            }
+            else if (c == '>')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    break; // End of generic arguments
+                }
+            }
+            else if (c == ',' && depth == 1)
+            {
+                // Comma at the top level indicates another generic argument
+                genericArgCount++;
+            }
+        }
+
+        return $"{baseTypeName}`{genericArgCount}";
+    }
+
+    /// <summary>
     /// Appends comprehensive type information including basic details, inheritance, and documentation
     /// </summary>
     /// <param name="result">StringBuilder to append to</param>

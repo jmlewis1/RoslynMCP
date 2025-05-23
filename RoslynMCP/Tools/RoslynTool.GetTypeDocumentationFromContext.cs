@@ -63,14 +63,7 @@ public partial class RoslynTool
             _logger.LogInformation("Resolved '{UnqualifiedName}' to '{FullyQualifiedName}'", 
                 unqualifiedTypeName, fullyQualifiedName);
 
-            // For built-in types and types not in the solution, return direct documentation
-            if (IsBuiltInOrExternalType(resolvedType))
-            {
-                return GetDirectTypeDocumentation(resolvedType);
-            }
-
-            // Call the existing GetTypeDocumentation method for types in the solution
-            return await GetTypeDocumentation(solutionPath, fullyQualifiedName);
+            return GetDirectTypeDocumentation(resolvedType);
         }
         catch (Exception ex)
         {
@@ -88,7 +81,8 @@ public partial class RoslynTool
     {
         var compilation = semanticModel.Compilation;
         
-        // Remove any generic type parameters for initial lookup
+        // Parse the type name to handle generics properly
+        string parsedTypeName = ParseGenericTypeName(typeName);
         string baseTypeName = typeName;
         bool isGeneric = typeName.Contains('<');
         if (isGeneric)
@@ -98,11 +92,11 @@ public partial class RoslynTool
         }
 
         // 1. Check if it's a built-in type or in System namespace
-        /*var systemType = ResolveSystemType(baseTypeName, compilation);
+        var systemType = ResolveSystemType(baseTypeName, compilation);
         if (systemType != null)
         {
             return HandleGenericType(systemType, typeName, semanticModel, compilation);
-        }*/
+        }
 
         // 2. Get all using directives
         var usings = compilationUnit.Usings;
@@ -122,10 +116,21 @@ public partial class RoslynTool
 
         if (!string.IsNullOrEmpty(currentNamespace))
         {
-            var typeInCurrentNamespace = compilation.GetTypeByMetadataName($"{currentNamespace}.{baseTypeName}");
-            if (typeInCurrentNamespace != null)
+            // Try with parsed generic name first
+            if (isGeneric)
             {
-                return HandleGenericType(typeInCurrentNamespace, typeName, semanticModel, compilation);
+                var typeInCurrentNamespace = compilation.GetTypeByMetadataName($"{currentNamespace}.{parsedTypeName}");
+                if (typeInCurrentNamespace != null)
+                {
+                    return HandleGenericType(typeInCurrentNamespace, typeName, semanticModel, compilation);
+                }
+            }
+            
+            // Try non-generic name
+            var nonGenericType = compilation.GetTypeByMetadataName($"{currentNamespace}.{baseTypeName}");
+            if (nonGenericType != null)
+            {
+                return HandleGenericType(nonGenericType, typeName, semanticModel, compilation);
             }
         }
 
@@ -135,6 +140,18 @@ public partial class RoslynTool
             var namespaceName = usingDirective.Name?.ToString();
             if (!string.IsNullOrEmpty(namespaceName))
             {
+                // Try with parsed generic name first
+                if (isGeneric)
+                {
+                    var qualifiedGenericTypeName = $"{namespaceName}.{parsedTypeName}";
+                    var genericType = compilation.GetTypeByMetadataName(qualifiedGenericTypeName);
+                    if (genericType != null)
+                    {
+                        return HandleGenericType(genericType, typeName, semanticModel, compilation);
+                    }
+                }
+                
+                // Try non-generic name
                 var qualifiedTypeName = $"{namespaceName}.{baseTypeName}";
                 var type = compilation.GetTypeByMetadataName(qualifiedTypeName);
                 if (type != null)
@@ -147,7 +164,20 @@ public partial class RoslynTool
         // 5. Check global usings
         foreach (var globalUsing in globalUsings)
         {
-            var qualifiedTypeName = $"{globalUsing}.{baseTypeName}";
+            var nonGlobalUsing = globalUsing.Replace("global::", "");
+            // Try with parsed generic name first
+            if (isGeneric)
+            {
+                var qualifiedGenericTypeName = $"{nonGlobalUsing}.{parsedTypeName}";
+                var genericType = compilation.GetTypeByMetadataName(qualifiedGenericTypeName);
+                if (genericType != null)
+                {
+                    return HandleGenericType(genericType, typeName, semanticModel, compilation);
+                }
+            }
+            
+            // Try non-generic name
+            var qualifiedTypeName = $"{nonGlobalUsing}.{baseTypeName}";
             var type = compilation.GetTypeByMetadataName(qualifiedTypeName);
             if (type != null)
             {
@@ -155,10 +185,51 @@ public partial class RoslynTool
             }
         }
 
-        // 6. Search all types in referenced assemblies
-        // This handles cases where using directives reference namespaces that contain 
-        // types which themselves use types from other namespaces
+        // 6. Search all types in referenced assemblies that match the name
+        // and check if they're accessible through using directives
+        var allNamespaces = new HashSet<string>();
+        
+        // Collect all namespaces from using directives (including global usings)
+        foreach (var usingDirective in usings)
+        {
+            var ns = usingDirective.Name?.ToString();
+            if (!string.IsNullOrEmpty(ns))
+                allNamespaces.Add(ns);
+        }
+        foreach (var globalUsing in globalUsings)
+        {
+            allNamespaces.Add(globalUsing);
+        }
+        if (!string.IsNullOrEmpty(currentNamespace))
+        {
+            allNamespaces.Add(currentNamespace);
+        }
+
+        // Search for the type in all assemblies
         var allTypes = compilation.GetSymbolsWithName(baseTypeName, SymbolFilter.Type);
+        foreach (var symbol in allTypes)
+        {
+            if (symbol is INamedTypeSymbol namedType)
+            {
+                // Check if this type is accessible through any of our using directives
+                var typeNamespace = namedType.ContainingNamespace?.ToDisplayString();
+                if (!string.IsNullOrEmpty(typeNamespace) && allNamespaces.Contains(typeNamespace))
+                {
+                    // The type's namespace is in our using directives, so it's accessible
+                    return HandleGenericType(namedType, typeName, semanticModel, compilation);
+                }
+                
+                // Also check if it's a public type (accessible without using directive)
+                if (namedType.DeclaredAccessibility == Accessibility.Public)
+                {
+                    // For public types, we might still want to use them if no better match is found
+                    // Store as a fallback option
+                    continue;
+                }
+            }
+        }
+        
+        // 7. If no exact namespace match found, try public types as fallback
         foreach (var symbol in allTypes)
         {
             if (symbol is INamedTypeSymbol namedType && 
@@ -168,7 +239,7 @@ public partial class RoslynTool
             }
         }
 
-        // 6. Check if it's a nested type in the current namespace
+        // 8. Check if it's a nested type in the current namespace
         if (!string.IsNullOrEmpty(currentNamespace))
         {
             foreach (var type in compilation.GetSymbolsWithName(baseTypeName, SymbolFilter.Type))
@@ -245,6 +316,7 @@ public partial class RoslynTool
             "Queue" => compilation.GetTypeByMetadataName("System.Collections.Generic.Queue`1"),
             "Stack" => compilation.GetTypeByMetadataName("System.Collections.Generic.Stack`1"),
             "Task" => compilation.GetTypeByMetadataName("System.Threading.Tasks.Task"),
+            "Task`1" => compilation.GetTypeByMetadataName("System.Threading.Tasks.Task`1"),
             _ => null
         };
     }
@@ -299,106 +371,6 @@ public partial class RoslynTool
         sb.AppendLine();
 
         AppendTypeInformation(sb, type, includeFullDocumentation: true);
-        return sb.ToString();
-
-        // Add XML documentation if available
-        var xmlComment = type.GetDocumentationCommentXml();
-        if (!string.IsNullOrWhiteSpace(xmlComment))
-        {
-            sb.AppendLine("=== DOCUMENTATION ===");
-            AppendFormattedXmlDocs(sb, xmlComment, "");
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("=== TYPE INFORMATION ===");
-        sb.AppendLine($"Kind: {type.TypeKind}");
-        sb.AppendLine($"Namespace: {type.ContainingNamespace?.ToDisplayString() ?? "<global>"}");
-        
-        if (type.IsGenericType)
-        {
-            sb.AppendLine($"Generic: Yes (Arity: {type.Arity})");
-        }
-        
-        if (type.BaseType != null && type.BaseType.SpecialType != SpecialType.System_Object)
-        {
-            sb.AppendLine($"Base Type: {type.BaseType.ToDisplayString()}");
-        }
-
-        var interfaces = type.Interfaces;
-        if (interfaces.Length > 0)
-        {
-            sb.AppendLine($"Implements: {string.Join(", ", interfaces.Select(i => i.ToDisplayString()))}");
-        }
-
-        sb.AppendLine();
-        sb.AppendLine("=== PUBLIC INTERFACE ===");
-
-        // Add constructors
-        var publicConstructors = type.Constructors.Where(c => c.DeclaredAccessibility == Accessibility.Public).ToList();
-        if (publicConstructors.Any())
-        {
-            sb.AppendLine();
-            sb.AppendLine("Constructors:");
-            foreach (var ctor in publicConstructors)
-            {
-                sb.AppendLine($"  {type.Name}({string.Join(", ", ctor.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))})");
-            }
-        }
-
-        // Add properties
-        var publicProperties = type.GetMembers().OfType<IPropertySymbol>()
-            .Where(p => p.DeclaredAccessibility == Accessibility.Public)
-            .OrderBy(p => p.Name).ToList();
-        
-        if (publicProperties.Any())
-        {
-            sb.AppendLine();
-            sb.AppendLine("Properties:");
-            foreach (var prop in publicProperties)
-            {
-                var accessors = new List<string>();
-                if (prop.GetMethod != null) accessors.Add("get");
-                if (prop.SetMethod != null) accessors.Add("set");
-                sb.AppendLine($"  {prop.Type.ToDisplayString()} {prop.Name} {{ {string.Join("; ", accessors)}; }}");
-            }
-        }
-
-        // Add methods
-        var publicMethods = type.GetMembers().OfType<IMethodSymbol>()
-            .Where(m => m.DeclaredAccessibility == Accessibility.Public && 
-                       m.MethodKind == MethodKind.Ordinary &&
-                       !m.IsStatic)
-            .OrderBy(m => m.Name).ToList();
-        
-        if (publicMethods.Any())
-        {
-            sb.AppendLine();
-            sb.AppendLine("Methods:");
-            foreach (var method in publicMethods)
-            {
-                var parameters = string.Join(", ", method.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"));
-                sb.AppendLine($"  {method.ReturnType.ToDisplayString()} {method.Name}({parameters})");
-            }
-        }
-
-        // Add static methods
-        var publicStaticMethods = type.GetMembers().OfType<IMethodSymbol>()
-            .Where(m => m.DeclaredAccessibility == Accessibility.Public && 
-                       m.MethodKind == MethodKind.Ordinary &&
-                       m.IsStatic)
-            .OrderBy(m => m.Name).ToList();
-        
-        if (publicStaticMethods.Any())
-        {
-            sb.AppendLine();
-            sb.AppendLine("Static Methods:");
-            foreach (var method in publicStaticMethods)
-            {
-                var parameters = string.Join(", ", method.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"));
-                sb.AppendLine($"  {method.ReturnType.ToDisplayString()} {method.Name}({parameters})");
-            }
-        }
-
         return sb.ToString();
     }
 }

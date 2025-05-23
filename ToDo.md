@@ -1,4 +1,1 @@
-- Add a new RoslynTool that can get type documentation from an unqualified type name given the solution path, filename, and type name
-- This will determine the fully qualified type name given the context of the .cs file.
-- Then it can just call GetTypeDocumentation on the fully qualfied type name and return that information
-- Write the unit tests to test this new functionality
+Geenrate a github Readme file for this repo that explains usage, and what the tools do

@@ -109,8 +109,8 @@ public partial class RoslynToolTests
 
         // Verify the result contains documentation
         Assert.That(result, Does.Not.StartWith("Error:"), "Should successfully resolve string type");
-        Assert.That(result, Does.Contain("Type Documentation for: System.String"), 
-            "Should resolve to System.String");
+        Assert.That(result, Does.Contain("Type Documentation for: string"), 
+            "Should show documentation for string type");
         
         realWorkspaceService.Dispose();
     }
@@ -241,7 +241,7 @@ public partial class RoslynToolTests
         // Verify the result indicates an error
         Assert.That(result, Does.StartWith("Error:"), 
             "Should return error when document is not found");
-        Assert.That(result, Does.Contain("Document 'NonExistent.cs' not found"), 
+        Assert.That(result, Does.Contain("Document 'TestProject\\NonExistent.cs' not found"), 
             "Error message should indicate which document was not found");
         
         realWorkspaceService.Dispose();
@@ -267,8 +267,60 @@ public partial class RoslynToolTests
 
         // Verify the result contains documentation
         Assert.That(result, Does.Not.StartWith("Error:"), "Should successfully resolve IHttpClientFactory type");
-        Assert.That(result, Does.Contain("Microsoft.Extensions.Http.IHttpClientFactory"), 
-            "Should resolve to Microsoft.Extensions.Http.IHttpClientFactory");
+        Assert.That(result, Does.Contain("System.Net.Http.IHttpClientFactory"),
+            "Should resolve to System.Net.Http.IHttpClientFactory");
+        
+        realWorkspaceService.Dispose();
+    }
+
+    [Test]
+    public async Task GetTypeDocumentationFromContext_WithGenericTypeFromUsing_ResolvesCorrectly()
+    {
+        // Test resolving Generic<Person> type from using TestProject.NS
+        var realWorkspaceService = new RoslynWorkspaceService(
+            new Mock<ILogger<RoslynWorkspaceService>>().Object);
+        
+        var realRoslynTool = new RoslynTool(_mockLogger.Object, realWorkspaceService);
+        
+        var testSolutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
+        testSolutionPath = Path.GetFullPath(testSolutionPath);
+
+        // Test resolving "Generic<Person>" type
+        var result = await realRoslynTool.GetTypeDocumentationFromContext(
+            testSolutionPath,
+            Path.Combine("TestProject", "Program.cs"),
+            "Generic<Person>");
+
+        // Verify the result contains documentation
+        Assert.That(result, Does.Not.StartWith("Error:"), "Should successfully resolve Generic<Person> type");
+        Assert.That(result, Does.Contain("TestProject.NS.Generic"), 
+            "Should resolve to TestProject.NS.Generic");
+        
+        realWorkspaceService.Dispose();
+    }
+
+    [Test]
+    public async Task GetTypeDocumentationFromContext_WithGeneric2Type_ResolvesCorrectly()
+    {
+        // Test resolving Generic2<List<int>, float> type from using TestProject.NS
+        var realWorkspaceService = new RoslynWorkspaceService(
+            new Mock<ILogger<RoslynWorkspaceService>>().Object);
+        
+        var realRoslynTool = new RoslynTool(_mockLogger.Object, realWorkspaceService);
+        
+        var testSolutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
+        testSolutionPath = Path.GetFullPath(testSolutionPath);
+
+        // Test resolving "Generic2<List<int>, float>" type
+        var result = await realRoslynTool.GetTypeDocumentationFromContext(
+            testSolutionPath,
+            Path.Combine("TestProject", "Program.cs"),
+            "Generic2<List<int>, float>");
+
+        // Verify the result contains documentation
+        Assert.That(result, Does.Not.StartWith("Error:"), "Should successfully resolve Generic2<List<int>, float> type");
+        Assert.That(result, Does.Contain("TestProject.NS.Generic2"), 
+            "Should resolve to TestProject.NS.Generic2");
         
         realWorkspaceService.Dispose();
     }

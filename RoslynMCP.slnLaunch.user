@@ -1,0 +1,17 @@
+[
+  {
+    "Name": "New Profile",
+    "Projects": [
+      {
+        "Path": "RoslynMCP\\RoslynMCP.csproj",
+        "Action": "Start",
+        "DebugTarget": "RoslynMCP"
+      },
+      {
+        "Path": "TestApp\\TestApp.csproj",
+        "Action": "Start",
+        "DebugTarget": "TestApp"
+      }
+    ]
+  }
+]

@@ -1,6 +1,7 @@
 ﻿using Newtonsoft.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
+using TestProject.NS;
 
 namespace TestProject
 {
@@ -83,7 +84,9 @@ namespace TestProject
                 Console.WriteLine($"HTTP request failed: {ex.Message}");
             }
 
+            Generic<Person> generic = new Generic<Person>();
             Console.WriteLine("\nApplication completed successfully!");
+
         }
 
         static void TestFunc(Person person)

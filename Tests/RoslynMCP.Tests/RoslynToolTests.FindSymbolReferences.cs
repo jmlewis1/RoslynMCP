@@ -87,7 +87,7 @@ public partial class RoslynToolTests
         var result = await realRoslynTool.FindSymbolReferences(
             testSolutionPath,
             "Program.cs",
-            52, // Line with 'var person = new Person'
+            53, // Line with 'var person = new Person'
             "person"); // The variable name
 
         // Verify the result contains reference information
@@ -128,7 +128,7 @@ public partial class RoslynToolTests
         var result = await realRoslynTool.FindSymbolReferences(
             testSolutionPath,
             "Program.cs",
-            11, // Line with Person class declaration
+            12, // Line with Person class declaration
             "Person"); // The class name
 
         // Verify the result contains reference information
@@ -169,7 +169,7 @@ public partial class RoslynToolTests
         var result = await realRoslynTool.FindSymbolReferences(
             testSolutionPath,
             "Program.cs",
-            17, // Line with Name property declaration
+            18, // Line with Name property declaration
             "Name"); // The property name
 
         // Verify the result contains reference information
@@ -258,7 +258,7 @@ public partial class RoslynToolTests
         var result = await realRoslynTool.FindSymbolReferences(
             testSolutionPath,
             "Program.cs",
-            52, // Line with 'var person = new Person'
+            53, // Line with 'var person = new Person'
             "person"); // The variable name
 
         // Verify the output format matches specification:

@@ -25,10 +25,10 @@ try
     // Create SSE client transport
     var clientTransport = new SseClientTransport(new SseClientTransportOptions
     {
-        Endpoint = new Uri("http://localhost:5001/sse")
+        Endpoint = new Uri("http://localhost:5000/sse")
     });
 
-    logger.LogInformation("Connecting to MCP server at http://localhost:5001...");
+    logger.LogInformation("Connecting to MCP server at http://localhost:5000...");
 
     // Create MCP client using the SSE transport
     await using var mcpClient = await McpClientFactory.CreateAsync(clientTransport);
@@ -61,7 +61,7 @@ try
         ["tokenToFind"] = "deserializedPerson"  // Token to get information about
     };*/
 
-    var getDetailedSymbolInfoArguments = new Dictionary<string, object?>
+    /*var getDetailedSymbolInfoArguments = new Dictionary<string, object?>
     {
         ["solutionPath"] = solutionPath,
         ["filePath"] = "Program.cs",
@@ -69,7 +69,17 @@ try
         ["tokenToFind"] = "args"  // Token to get information about
     };
     var detailedSymbolInfoResult = await mcpClient.CallToolAsync("GetDetailedSymbolInfo", getDetailedSymbolInfoArguments);
-    
+    */
+
+    var getDetailedSymbolInfoArguments = new Dictionary<string, object?>
+    {
+        ["solutionPath"] = solutionPath,
+        ["filePath"] = "Program.cs",
+        ["unqualifiedTypeName"] = "int"  // Token to get information about
+    };
+    var detailedSymbolInfoResult = await mcpClient.CallToolAsync("GetTypeDocumentationFromContext", getDetailedSymbolInfoArguments);
+
+
     logger.LogInformation("GetDetailedSymbolInfo tool result: {Result}", detailedSymbolInfoResult.Content.First().Text);
     Console.WriteLine($"GetDetailedSymbolInfo tool returned: {detailedSymbolInfoResult.Content.First().Text}");
 
