@@ -9,19 +9,31 @@ namespace RoslynMCP.Services;
 
 /// <summary>
 /// Service responsible for creating, caching, and managing Roslyn MSBuildWorkspace instances
-/// with automatic file change detection and workspace updating.
+/// with robust file change detection and workspace updating.
 /// </summary>
 public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
 {
     private readonly ILogger<RoslynWorkspaceService> _logger;
     private readonly ConcurrentDictionary<string, WorkspaceInfo> _workspaces = new();
+    private readonly ConcurrentDictionary<string, DateTime> _fileOperationTracker = new();
+    private readonly TimeSpan _fileOperationDebounceTime = TimeSpan.FromMilliseconds(500);
     private bool _disposed = false;
-    private List<string> watchedExtensions = new(new[]
+    
+    private readonly HashSet<string> _watchedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".cs",
-        ".sln",
         ".csproj"
-    });
+    };
+
+    private readonly HashSet<string> _ignoredDirectories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".vs",
+        "obj",
+        "bin",
+        ".git",
+        ".claude",
+        "node_modules"
+    };
 
     public RoslynWorkspaceService(ILogger<RoslynWorkspaceService> logger)
     {
@@ -69,11 +81,16 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
     public async Task<Document?> GetDocumentAsync(string solutionPath, string filePath)
     {
         var solution = await GetSolutionAsync(solutionPath);
-        var fileName = Path.GetFileName(filePath);
+        
+        // Normalize the file path for comparison
+        var normalizedFilePath = Path.GetFullPath(filePath);
         
         return solution.Projects
             .SelectMany(p => p.Documents)
-            .FirstOrDefault(d => Path.GetFileName(d.FilePath) == fileName);
+            .FirstOrDefault(d => string.Equals(
+                Path.GetFullPath(d.FilePath ?? ""), 
+                normalizedFilePath, 
+                StringComparison.OrdinalIgnoreCase));
     }
 
     public static async Task<AdhocWorkspace> CloneSolutionToAdhocAsync(Solution sourceSolution)
@@ -116,6 +133,7 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
 
         return adhocWorkspace;
     }
+
     private async Task<Workspace> CreateAndCacheWorkspaceAsync(string solutionPath)
     {
         var msBuildWorkspace = MSBuildWorkspace.Create();
@@ -137,6 +155,7 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
             catch(Exception ex)
             {
                 // Could be an issue of WSL/Windows path mixing try the other type of path
+                _logger.LogWarning(ex, "Failed to load solution with original path, trying alternative path format");
                 solutionPath = PathConverter.ToOtherPath(solutionPath);
                 solution = await msBuildWorkspace.OpenSolutionAsync(solutionPath);
             }
@@ -153,14 +172,14 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
                     diagnostics.Count, solutionPath);
             }
 
-            // Create an AhHoc workspace from the MSBuildWorkspace
+            // Create an AdhocWorkspace from the MSBuildWorkspace
             var workspace = await CloneSolutionToAdhocAsync(solution);
 
             var solutionDirectory = Path.GetDirectoryName(solutionPath)!;
             var workspaceInfo = new WorkspaceInfo(workspace, solution, solutionPath);
             
             // Set up file watching
-            SetupFileWatchers(workspaceInfo, solutionDirectory);
+            SetupFileWatcher(workspaceInfo, solutionDirectory);
             
             // Cache the workspace
             _workspaces[solutionPath] = workspaceInfo;
@@ -172,274 +191,209 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load solution: {SolutionPath}", solutionPath);
+            msBuildWorkspace.Dispose();
             throw;
         }
     }
 
-    private void SetupFileWatchers(WorkspaceInfo workspaceInfo, string rootDirectory)
+    private void SetupFileWatcher(WorkspaceInfo workspaceInfo, string rootDirectory)
     {
-        _logger.LogInformation("Setting up file watchers for directory: {Directory}", rootDirectory);
+        _logger.LogInformation("Setting up file watcher for directory: {Directory}", rootDirectory);
         
-        // Create watcher for the root directory
-        var rootWatcher = CreateFileSystemWatcher(rootDirectory, workspaceInfo);
-        workspaceInfo.FileWatchers.Add(rootWatcher);
-
-        // Recursively add watchers for subdirectories
-        foreach (var directory in Directory.GetDirectories(rootDirectory, "*", SearchOption.AllDirectories))
-        {
-            if (!IgnorePath(directory))
-            {
-                var watcher = CreateFileSystemWatcher(directory, workspaceInfo);
-                workspaceInfo.FileWatchers.Add(watcher);
-            }
-        }
-    }
-
-    private bool IgnorePath(string path)
-    {
-        List<string> ignoreDirs = new List<string>(new[]{
-            ".vs",
-            "obj",
-            "bin",
-            ".git",
-            ".claude"
-        });
-
-        var parts = Path.GetFullPath(path)
-                .TrimEnd(Path.DirectorySeparatorChar)
-                .Split(Path.DirectorySeparatorChar);
-
-        foreach (var part in parts)
-        {
-            foreach(var ignoreDir in ignoreDirs)
-            {
-                if (part == ignoreDir)
-                    return true;
-            }
-        }
-        return false;
-    }
-
-    private bool AllowedExtenions(string path)
-    {
-        string ext = Path.GetExtension(path);
-
-        return watchedExtensions.Contains(ext);
-    }
-
-    private FileSystemWatcher CreateFileSystemWatcher(string directory, WorkspaceInfo workspaceInfo)
-    {
         var watcher = new FileSystemWatcher
         {
-            Path = directory,
+            Path = rootDirectory,
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
-            Filter = "*.*", // Monitor C# files
-            IncludeSubdirectories = false, // Each subdirectory gets its own watcher
+            Filter = "*.*",
+            IncludeSubdirectories = true,
             EnableRaisingEvents = true
         };
 
-        // Handle file changes
-        watcher.Changed += (sender, e) => OnFileChanged(e.FullPath, workspaceInfo);
-        watcher.Created += (sender, e) => OnFileCreated(e.FullPath, workspaceInfo);
-        watcher.Deleted += (sender, e) => OnFileDeleted(e.FullPath, workspaceInfo);
-        watcher.Renamed += (sender, e) => OnFileRenamed(e.OldFullPath, e.FullPath, workspaceInfo);
+        // Use a single handler for all events with debouncing
+        watcher.Changed += (sender, e) => HandleFileSystemEvent(e.FullPath, FileOperation.Changed, workspaceInfo);
+        watcher.Created += (sender, e) => HandleFileSystemEvent(e.FullPath, FileOperation.Created, workspaceInfo);
+        watcher.Deleted += (sender, e) => HandleFileSystemEvent(e.FullPath, FileOperation.Deleted, workspaceInfo);
+        watcher.Renamed += (sender, e) => HandleRenameEvent(e.OldFullPath, e.FullPath, workspaceInfo);
         
-        // Handle directory changes
-        watcher.Created += (sender, e) => 
+        // Handle errors
+        watcher.Error += (sender, e) =>
         {
-            if (Directory.Exists(e.FullPath))
-            {
-                OnDirectoryCreated(e.FullPath, workspaceInfo);
-            }
+            _logger.LogError(e.GetException(), "FileSystemWatcher error");
         };
-
-        _logger.LogDebug("File watcher created for directory: {Directory}", directory);
-        return watcher;
+        
+        workspaceInfo.FileWatcher = watcher;
+        _logger.LogInformation("File watcher created for directory: {Directory}", rootDirectory);
     }
 
-    private void OnFileChanged(string filePath, WorkspaceInfo workspaceInfo)
+    private void HandleFileSystemEvent(string path, FileOperation operation, WorkspaceInfo workspaceInfo)
     {
         try
         {
-            if (!AllowedExtenions(filePath))
-                return;
+            // Check if this is a directory
+            bool isDirectory = false;
+            try
+            {
+                isDirectory = Directory.Exists(path) && !File.Exists(path);
+            }
+            catch { }
 
-            _logger.LogInformation("File changed: {FilePath}", filePath);
+            // Handle directory events
+            if (isDirectory)
+            {
+                if (operation == FileOperation.Created)
+                {
+                    _logger.LogInformation("Directory created: {Path}", path);
+                }
+                else if (operation == FileOperation.Deleted)
+                {
+                    _logger.LogInformation("Directory deleted: {Path}", path);
+                    // Remove all documents from this directory
+                    Task.Run(async () => await RemoveDocumentsFromDirectoryAsync(path, workspaceInfo));
+                }
+                return;
+            }
+
+            // Ignore non-watched extensions
+            var extension = Path.GetExtension(path);
+            if (!_watchedExtensions.Contains(extension))
+            {
+                return;
+            }
+
+            // Ignore files in ignored directories
+            if (IsInIgnoredDirectory(path))
+            {
+                return;
+            }
+
+            // Debounce file operations
+            var key = $"{path}:{operation}";
+            var now = DateTime.UtcNow;
             
-            // Queue file updates to avoid IO conflicts
-            Task.Run(async () => 
+            if (_fileOperationTracker.TryGetValue(key, out var lastOperation))
+            {
+                if (now - lastOperation < _fileOperationDebounceTime)
+                {
+                    _logger.LogDebug("Debouncing {Operation} for {Path}", operation, path);
+                    _fileOperationTracker[key] = now;
+                    return;
+                }
+            }
+            
+            _fileOperationTracker[key] = now;
+
+            // Log the operation
+            _logger.LogInformation("File {Operation}: {Path}", operation, path);
+
+            // Handle the file operation
+            Task.Run(async () =>
             {
                 try
                 {
-                    await UpdateDocumentInWorkspaceAsync(filePath, workspaceInfo);
+                    await Task.Delay(100); // Small delay to ensure file operations complete
+                    
+                    switch (operation)
+                    {
+                        case FileOperation.Created:
+                            await HandleFileCreatedAsync(path, workspaceInfo);
+                            break;
+                        case FileOperation.Changed:
+                            await HandleFileChangedAsync(path, workspaceInfo);
+                            break;
+                        case FileOperation.Deleted:
+                            await HandleFileDeletedAsync(path, workspaceInfo);
+                            break;
+                    }
+                    
+                    // Clean up old entries from the tracker
+                    CleanupFileOperationTracker();
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error updating document in workspace: {FilePath}", filePath);
+                    _logger.LogError(ex, "Error handling {Operation} for file: {Path}", operation, path);
                 }
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error handling file change event: {FilePath}", filePath);
+            _logger.LogError(ex, "Error in HandleFileSystemEvent for {Path}", path);
         }
     }
 
-    private void OnFileCreated(string filePath, WorkspaceInfo workspaceInfo)
+    private void HandleRenameEvent(string oldPath, string newPath, WorkspaceInfo workspaceInfo)
     {
         try
         {
-            if (!AllowedExtenions(filePath))
-                return;
-
-            if (Directory.Exists(filePath))
+            var extension = Path.GetExtension(newPath);
+            if (!_watchedExtensions.Contains(extension))
             {
-                OnDirectoryCreated(filePath, workspaceInfo);
+                return;
             }
-            else
+
+            if (IsInIgnoredDirectory(newPath))
             {
-                _logger.LogInformation("File created: {FilePath}", filePath);
-                
-                // Queue file updates
-                Task.Run(async () => 
-                {
-                    try
-                    {
-                        await AddDocumentToWorkspaceAsync(filePath, workspaceInfo);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error adding document to workspace: {FilePath}", filePath);
-                    }
-                });
+                return;
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error handling file creation event: {FilePath}", filePath);
-        }
-    }
-
-    private void OnFileDeleted(string filePath, WorkspaceInfo workspaceInfo)
-    {
-        try
-        {
-            if (!AllowedExtenions(filePath))
-                return;
-
-            _logger.LogInformation("File deleted: {FilePath}", filePath);
-            
-            // Queue file updates
-            Task.Run(async () => 
-            {
-                try
-                {
-                    await RemoveDocumentFromWorkspaceAsync(filePath, workspaceInfo);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error removing document from workspace: {FilePath}", filePath);
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error handling file deletion event: {FilePath}", filePath);
-        }
-    }
-
-    private void OnFileRenamed(string oldPath, string newPath, WorkspaceInfo workspaceInfo)
-    {
-        try
-        {
-            if (!AllowedExtenions(newPath))
-                return;
 
             _logger.LogInformation("File renamed from {OldPath} to {NewPath}", oldPath, newPath);
-            
-            // Queue file updates
-            Task.Run(async () => 
+
+            Task.Run(async () =>
             {
                 try
                 {
-                    // Handle as a delete followed by a create
-                    await RemoveDocumentFromWorkspaceAsync(newPath, workspaceInfo);
-                    await RemoveDocumentFromWorkspaceAsync(oldPath, workspaceInfo);
-                    await AddDocumentToWorkspaceAsync(newPath, workspaceInfo);
+                    await Task.Delay(100);
+                    // Remove old and add new
+                    await HandleFileDeletedAsync(oldPath, workspaceInfo);
+                    await HandleFileCreatedAsync(newPath, workspaceInfo);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error handling file rename from {OldPath} to {NewPath}", oldPath, newPath);
+                    _logger.LogError(ex, "Error handling rename from {OldPath} to {NewPath}", oldPath, newPath);
                 }
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error handling file rename event from {OldPath} to {NewPath}", oldPath, newPath);
+            _logger.LogError(ex, "Error in HandleRenameEvent");
         }
     }
 
-    private void OnDirectoryCreated(string directoryPath, WorkspaceInfo workspaceInfo)
+    private async Task HandleFileCreatedAsync(string filePath, WorkspaceInfo workspaceInfo)
     {
-        try
+        // For .cs files, add to workspace
+        if (Path.GetExtension(filePath).Equals(".cs", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogInformation("Directory created: {DirectoryPath}", directoryPath);
-            
-            // Create a new watcher for this directory
-            var watcher = CreateFileSystemWatcher(directoryPath, workspaceInfo);
-            workspaceInfo.FileWatchers.Add(watcher);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error handling directory creation event: {DirectoryPath}", directoryPath);
+            await AddDocumentToWorkspaceAsync(filePath, workspaceInfo);
         }
     }
 
-    private async Task UpdateDocumentInWorkspaceAsync(string filePath, WorkspaceInfo workspaceInfo)
+    private async Task HandleFileChangedAsync(string filePath, WorkspaceInfo workspaceInfo)
     {
-        try
+        // For .cs files, update in workspace
+        if (Path.GetExtension(filePath).Equals(".cs", StringComparison.OrdinalIgnoreCase))
         {
-            var fileName = Path.GetFileName(filePath);
-            var solution = workspaceInfo.Workspace.CurrentSolution;
-            
-            // Find the document in the solution
-            var document = solution.Projects
-                .SelectMany(p => p.Documents)
-                .FirstOrDefault(d => Path.GetFileName(d.FilePath) == fileName);
+            var normalizedPath = Path.GetFullPath(filePath);
+            var document = await GetDocumentByFullPath(workspaceInfo.Workspace.CurrentSolution, normalizedPath);
             
             if (document != null)
             {
-                _logger.LogDebug("Updating document in workspace: {FilePath}", filePath);
-                
-                // Read the updated content
-                var fileContent = await File.ReadAllTextAsync(filePath);
-                var sourceText = Microsoft.CodeAnalysis.Text.SourceText.From(fileContent);
-                
-                // Create a new document with the updated text
-                var newDocument = document.WithText(sourceText);
-                
-                // Update the solution
-                var newSolution = solution.WithDocumentText(document.Id, sourceText);
-                
-                // Apply the changes to the workspace
-                if (workspaceInfo.Workspace.TryApplyChanges(newSolution))
-                {
-                    _logger.LogInformation("Document updated successfully: {FilePath}", filePath);
-                }
-                else
-                {
-                    _logger.LogWarning("Failed to apply document changes to workspace: {FilePath}", filePath);
-                }
+                await UpdateDocumentInWorkspaceAsync(filePath, document, workspaceInfo);
             }
             else
             {
-                _logger.LogWarning("Document not found in workspace: {FilePath}", filePath);
+                // If document doesn't exist, try to add it
+                _logger.LogDebug("Document not found for changed file, attempting to add: {Path}", filePath);
                 await AddDocumentToWorkspaceAsync(filePath, workspaceInfo);
             }
         }
-        catch (Exception ex)
+    }
+
+    private async Task HandleFileDeletedAsync(string filePath, WorkspaceInfo workspaceInfo)
+    {
+        // For .cs files, remove from workspace
+        if (Path.GetExtension(filePath).Equals(".cs", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogError(ex, "Error updating document in workspace: {FilePath}", filePath);
+            await RemoveDocumentFromWorkspaceAsync(filePath, workspaceInfo);
         }
     }
 
@@ -447,126 +401,222 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
     {
         try
         {
-            // Get the file extension to determine document type
-            var extension = Path.GetExtension(filePath).ToLowerInvariant();
-            if (extension != ".cs")
+            var normalizedPath = Path.GetFullPath(filePath);
+            var solution = workspaceInfo.Workspace.CurrentSolution;
+            
+            // Check if document already exists
+            var existingDoc = await GetDocumentByFullPath(solution, normalizedPath);
+            if (existingDoc != null)
             {
-                _logger.LogDebug("Ignoring non-C# file: {FilePath}", filePath);
+                _logger.LogDebug("Document already exists in workspace: {Path}", filePath);
                 return;
             }
 
-            var solution = workspaceInfo.Workspace.CurrentSolution;
-            var fileName = Path.GetFileName(filePath);
-            var directoryName = Path.GetDirectoryName(filePath)!;
-
-            // Find the appropriate project for this file
-            var project = FindBestMatchingProject(solution, directoryName);
-            
-            if (project != null)
+            // Find the appropriate project
+            var project = FindBestMatchingProject(solution, Path.GetDirectoryName(normalizedPath)!);
+            if (project == null)
             {
-                _logger.LogDebug("Adding document to project {ProjectName}: {FilePath}", project.Name, filePath);
-                
-                // Read the file content
-                var fileContent = await File.ReadAllTextAsync(filePath);
-                var sourceText = Microsoft.CodeAnalysis.Text.SourceText.From(fileContent);
-                
-                var documentId = DocumentId.CreateNewId(project.Id);
-                var newSolution = project.Solution.AddDocument(documentId, fileName, fileContent, filePath: filePath);
+                _logger.LogWarning("No suitable project found for document: {Path}", filePath);
+                return;
+            }
 
-                // Add the document to the project
-                //var newProject = project.AddDocument(fileName, sourceText, filePath: filePath).Project;
+            // Read file content with retry logic
+            string fileContent = string.Empty;
+            int retryCount = 3;
+            while (retryCount > 0)
+            {
+                try
+                {
+                    fileContent = await File.ReadAllTextAsync(filePath);
+                    break;
+                }
+                catch (IOException ioEx) when (retryCount > 1)
+                {
+                    _logger.LogDebug(ioEx, "File locked, retrying read for {Path}", filePath);
+                    retryCount--;
+                    await Task.Delay(200);
+                }
+            }
 
-                // Update the solution
-                /*Solution newSolution;
-                if (newProject.ParseOptions != null)
-                {
-                    newSolution = solution.WithProjectParseOptions(newProject.Id, newProject.ParseOptions);
-                }
-                else
-                {
-                    newSolution = solution;
-                }*/
-                
-                // Apply the changes to the workspace
-                if (workspaceInfo.Workspace.TryApplyChanges(newSolution))
-                {
-                    _logger.LogInformation("Document added successfully: {FilePath}", filePath);
-                }
-                else
-                {
-                    _logger.LogWarning("Failed to add document to workspace: {FilePath}", filePath);
-                }
+            var fileName = Path.GetFileName(filePath);
+            var documentId = DocumentId.CreateNewId(project.Id);
+            var newSolution = solution.AddDocument(documentId, fileName, fileContent, filePath: normalizedPath);
+
+            if (workspaceInfo.Workspace.TryApplyChanges(newSolution))
+            {
+                _logger.LogInformation("Document added successfully: {Path}", filePath);
             }
             else
             {
-                _logger.LogWarning("No suitable project found for document: {FilePath}", filePath);
+                _logger.LogWarning("Failed to add document to workspace: {Path}", filePath);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error adding document to workspace: {FilePath}", filePath);
+            _logger.LogError(ex, "Error adding document to workspace: {Path}", filePath);
         }
     }
 
-    private Task RemoveDocumentFromWorkspaceAsync(string filePath, WorkspaceInfo workspaceInfo)
+    private async Task UpdateDocumentInWorkspaceAsync(string filePath, Document document, WorkspaceInfo workspaceInfo)
     {
         try
         {
-            var solution = workspaceInfo.Workspace.CurrentSolution;
-            var fileName = Path.GetFileName(filePath);
-            
-            // Find the document in the solution
-            var document = solution.Projects
-                .SelectMany(p => p.Documents)
-                .FirstOrDefault(d => Path.GetFileName(d.FilePath) == fileName);
-            
-            if (document != null)
+            // Read file content with retry logic
+            string fileContent = string.Empty;
+            int retryCount = 3;
+            while (retryCount > 0)
             {
-                _logger.LogDebug("Removing document from workspace: {FilePath}", filePath);
-                
-                // Remove the document from the solution
-                var newSolution = solution.RemoveDocument(document.Id);
-                
-                // Apply the changes to the workspace
-                if (workspaceInfo.Workspace.TryApplyChanges(newSolution))
+                try
                 {
-                    _logger.LogInformation("Document removed successfully: {FilePath}", filePath);
+                    fileContent = await File.ReadAllTextAsync(filePath);
+                    break;
                 }
-                else
+                catch (IOException ioEx) when (retryCount > 1)
                 {
-                    _logger.LogWarning("Failed to remove document from workspace: {FilePath}", filePath);
+                    _logger.LogDebug(ioEx, "File locked, retrying read for {Path}", filePath);
+                    retryCount--;
+                    await Task.Delay(200);
                 }
+            }
+
+            var sourceText = Microsoft.CodeAnalysis.Text.SourceText.From(fileContent);
+            var newSolution = document.Project.Solution.WithDocumentText(document.Id, sourceText);
+
+            if (workspaceInfo.Workspace.TryApplyChanges(newSolution))
+            {
+                _logger.LogInformation("Document updated successfully: {Path}", filePath);
             }
             else
             {
-                _logger.LogDebug("Document not found in workspace: {FilePath}", filePath);
+                _logger.LogWarning("Failed to update document in workspace: {Path}", filePath);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error removing document from workspace: {FilePath}", filePath);
+            _logger.LogError(ex, "Error updating document in workspace: {Path}", filePath);
         }
-        
-        return Task.CompletedTask;
+    }
+
+    private async Task RemoveDocumentFromWorkspaceAsync(string filePath, WorkspaceInfo workspaceInfo)
+    {
+        try
+        {
+            var normalizedPath = Path.GetFullPath(filePath);
+            var solution = workspaceInfo.Workspace.CurrentSolution;
+            var document = await GetDocumentByFullPath(solution, normalizedPath);
+
+            if (document != null)
+            {
+                var newSolution = solution.RemoveDocument(document.Id);
+                
+                if (workspaceInfo.Workspace.TryApplyChanges(newSolution))
+                {
+                    _logger.LogInformation("Document removed successfully: {Path}", filePath);
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to remove document from workspace: {Path}", filePath);
+                }
+            }
+            else
+            {
+                _logger.LogDebug("Document not found in workspace: {Path}", filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing document from workspace: {Path}", filePath);
+        }
+    }
+
+    private async Task RemoveDocumentsFromDirectoryAsync(string directoryPath, WorkspaceInfo workspaceInfo)
+    {
+        try
+        {
+            var normalizedDirPath = Path.GetFullPath(directoryPath);
+            var solution = workspaceInfo.Workspace.CurrentSolution;
+            var documentsToRemove = new List<Document>();
+
+            foreach (var project in solution.Projects)
+            {
+                foreach (var document in project.Documents)
+                {
+                    if (document.FilePath != null && 
+                        Path.GetFullPath(document.FilePath).StartsWith(normalizedDirPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        documentsToRemove.Add(document);
+                    }
+                }
+            }
+
+            foreach (var document in documentsToRemove)
+            {
+                _logger.LogDebug("Removing document from deleted directory: {Path}", document.FilePath);
+                await RemoveDocumentFromWorkspaceAsync(document.FilePath!, workspaceInfo);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing documents from directory: {Path}", directoryPath);
+        }
+    }
+
+    private async Task<Document?> GetDocumentByFullPath(Solution solution, string fullPath)
+    {
+        return await Task.Run(() =>
+        {
+            return solution.Projects
+                .SelectMany(p => p.Documents)
+                .FirstOrDefault(d => d.FilePath != null && 
+                    string.Equals(Path.GetFullPath(d.FilePath), fullPath, StringComparison.OrdinalIgnoreCase));
+        });
     }
 
     private Project? FindBestMatchingProject(Solution solution, string directoryPath)
     {
-        // Try to find a project that has a matching directory structure
+        var normalizedDirPath = Path.GetFullPath(directoryPath);
+        Project? bestMatch = null;
+        int bestMatchLength = 0;
+
         foreach (var project in solution.Projects)
         {
             if (project.FilePath != null)
             {
-                var projectDirectory = Path.GetDirectoryName(project.FilePath);
-                if (directoryPath.StartsWith(projectDirectory!, StringComparison.OrdinalIgnoreCase))
+                var projectDirectory = Path.GetDirectoryName(Path.GetFullPath(project.FilePath))!;
+                if (normalizedDirPath.StartsWith(projectDirectory, StringComparison.OrdinalIgnoreCase))
                 {
-                    return project;
+                    if (projectDirectory.Length > bestMatchLength)
+                    {
+                        bestMatch = project;
+                        bestMatchLength = projectDirectory.Length;
+                    }
                 }
             }
         }
 
-        // Fallback to the first project if no match is found
-        return solution.Projects.FirstOrDefault();
+        return bestMatch ?? solution.Projects.FirstOrDefault();
+    }
+
+    private bool IsInIgnoredDirectory(string path)
+    {
+        var normalizedPath = Path.GetFullPath(path);
+        var parts = normalizedPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        
+        return parts.Any(part => _ignoredDirectories.Contains(part));
+    }
+
+    private void CleanupFileOperationTracker()
+    {
+        var cutoffTime = DateTime.UtcNow - TimeSpan.FromMinutes(5);
+        var keysToRemove = _fileOperationTracker
+            .Where(kvp => kvp.Value < cutoffTime)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var key in keysToRemove)
+        {
+            _fileOperationTracker.TryRemove(key, out _);
+        }
     }
 
     public void Dispose()
@@ -583,20 +633,23 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
             {
                 foreach (var workspaceInfo in _workspaces.Values)
                 {
-                    foreach (var watcher in workspaceInfo.FileWatchers)
-                    {
-                        watcher.EnableRaisingEvents = false;
-                        watcher.Dispose();
-                    }
-                    
-                    workspaceInfo.Workspace.Dispose();
+                    workspaceInfo.FileWatcher?.Dispose();
+                    workspaceInfo.Workspace?.Dispose();
                 }
                 
                 _workspaces.Clear();
+                _fileOperationTracker.Clear();
             }
 
             _disposed = true;
         }
+    }
+
+    private enum FileOperation
+    {
+        Created,
+        Changed,
+        Deleted
     }
 
     private class WorkspaceInfo
@@ -604,14 +657,13 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
         public Workspace Workspace { get; }
         public Solution OriginalSolution { get; }
         public string SolutionFilePath { get; }
-        public List<FileSystemWatcher> FileWatchers { get; } = new();
+        public FileSystemWatcher? FileWatcher { get; set; }
 
         public WorkspaceInfo(Workspace workspace, Solution solution, string solutionFilePath)
         {
             Workspace = workspace;
             OriginalSolution = solution;
             SolutionFilePath = solutionFilePath;
-
         }
     }
 }

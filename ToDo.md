@@ -1,1 +1,9 @@
-Geenrate a github Readme file for this repo that explains usage, and what the tools do
+- The file monitoring system in RoslynWorkspaceService doesn't work very well.
+- A lot of editors do several file swaps to save a file, so rename current file to tempFileName, save new file to otherTempFileName, rename otherTempFileName to fileName. Or some variant of that.
+- File updates don't work, when they do happen.
+- This doesn't need to be fantastic, it's not running in an IDE, it doesn't need to be super optimized.
+- I want you to find a way to test this behavior, run the server, or create a test app that runs the file watcher, then do some file modifications in the TestSln folders, create files, delete files, rename files, update files, create directories, remove directories, etc...
+- Implement sufficient logging to make sure everything is being handled.
+- It's fine in all update cases to simply remove the document, and readd it.
+- Verify that create, delete of file works
+- Verify that create and delete of directories, and all files in it works
