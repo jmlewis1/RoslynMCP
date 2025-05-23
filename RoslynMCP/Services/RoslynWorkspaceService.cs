@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.MSBuild;
 using Microsoft.Extensions.Logging;
+using RoslynMCP.Utils;
 using System.Collections.Concurrent;
 using System.IO;
 
@@ -35,7 +36,8 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
     /// <returns>The MSBuildWorkspace instance for the solution.</returns>
     public async Task<Workspace> GetWorkspaceAsync(string solutionPath)
     {
-        var normalizedPath = Path.GetFullPath(solutionPath);
+        var nativePath = PathConverter.ConvertToNativePath(solutionPath);
+        var normalizedPath = Path.GetFullPath(nativePath);
         
         if (_workspaces.TryGetValue(normalizedPath, out var workspaceInfo))
         {
@@ -126,8 +128,18 @@ public class RoslynWorkspaceService : IRoslynWorkspaceService, IDisposable
 
         try
         {
+            Solution solution;
             // Load the solution
-            var solution = await msBuildWorkspace.OpenSolutionAsync(solutionPath);
+            try
+            {
+                solution = await msBuildWorkspace.OpenSolutionAsync(solutionPath);
+            }
+            catch(Exception ex)
+            {
+                // Could be an issue of WSL/Windows path mixing try the other type of path
+                solutionPath = PathConverter.ToOtherPath(solutionPath);
+                solution = await msBuildWorkspace.OpenSolutionAsync(solutionPath);
+            }
 
             // Log diagnostic information
             var diagnostics = msBuildWorkspace.Diagnostics.Where(d => d.Kind == WorkspaceDiagnosticKind.Failure).ToList();

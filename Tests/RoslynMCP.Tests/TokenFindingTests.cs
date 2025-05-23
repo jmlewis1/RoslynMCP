@@ -40,7 +40,7 @@ public class TokenFindingTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             _testSolutionPath,
             "Program.cs",
-            46, // Line with Main method parameters
+            47, // Line with Main method parameters
             "args"); // The args parameter
         
         // Verify the result contains expected information about the args parameter
@@ -67,7 +67,7 @@ public class TokenFindingTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             _testSolutionPath,
             "Program.cs",
-            11, // Line with Person class declaration
+            12, // Line with Person class declaration
             "Person"); // The class name
         
         // Verify the result contains expected information about the Person class
@@ -94,7 +94,7 @@ public class TokenFindingTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             _testSolutionPath,
             "Program.cs",
-            17, // Line with Name property
+            18, // Line with Name property
             "Name"); // The property name
         
         // Verify the result contains expected information about the Name property
@@ -170,7 +170,7 @@ public class TokenFindingTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             _testSolutionPath,
             "Program.cs",
-            52, // Line with 'var person = new Person'
+            53, // Line with 'var person = new Person'
             "person"); // The variable name
         
         Assert.That(result, Does.Not.StartWith("Error:"), 
@@ -195,7 +195,7 @@ public class TokenFindingTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             _testSolutionPath,
             "Program.cs",
-            52, // Line with 'new Person'
+            53, // Line with 'new Person'
             "Person"); // The class name in new expression
         
         Assert.That(result, Does.Not.StartWith("Error:"), 
@@ -220,7 +220,7 @@ public class TokenFindingTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             _testSolutionPath,
             "Program.cs",
-            64, // Line with Console.WriteLine
+            65, // Line with Console.WriteLine
             "Console"); // The Console class
         
         Assert.That(result, Does.Not.StartWith("Error:"), 
@@ -245,7 +245,7 @@ public class TokenFindingTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             _testSolutionPath,
             "Program.cs",
-            31, // Line with 'public int aField = 0;'
+            32, // Line with 'public int aField = 0;'
             "aField"); // The field name
         
         Assert.That(result, Does.Not.StartWith("Error:"), 
@@ -270,7 +270,7 @@ public class TokenFindingTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             _testSolutionPath,
             "Program.cs",
-            67, // Line with 'var services = new ServiceCollection();'
+            68, // Line with 'var services = new ServiceCollection();'
             "services"); // The variable name
         
         Assert.That(result, Does.Not.StartWith("Error:"), 

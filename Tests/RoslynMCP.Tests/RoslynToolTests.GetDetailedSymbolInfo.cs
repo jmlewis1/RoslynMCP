@@ -88,7 +88,7 @@ public partial class RoslynToolTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             testSolutionPath,
             "Program.cs",
-            52, // Line with 'new Person'
+            53, // Line with 'new Person'
             "Person");
 
         // Verify the result contains the enhanced type information
@@ -133,7 +133,7 @@ public partial class RoslynToolTests
         var result = await realRoslynTool.GetDetailedSymbolInfo(
             testSolutionPath,
             "Program.cs",
-            52, // Line with 'var person = new Person'
+            53, // Line with 'var person = new Person'
             "person"); // The variable name
 
         // Verify the result contains information about the variable

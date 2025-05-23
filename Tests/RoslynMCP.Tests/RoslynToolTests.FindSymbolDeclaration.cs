@@ -15,7 +15,7 @@ public partial class RoslynToolTests
         var solutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
         solutionPath = Path.GetFullPath(solutionPath);
         var filePath = "Program.cs";
-        var line = 52;
+        var line = 53;
         var tokenToFind = "person";
         
         // Setup mock solution and document
@@ -64,9 +64,9 @@ public partial class RoslynToolTests
     }
 
     [Test]
-    public async Task FindSymbolDeclaration_WithPersonClass_Line11_FindsClassDeclaration()
+    public async Task FindSymbolDeclaration_WithPersonClass_Line12_FindsClassDeclaration()
     {
-        // Test finding the declaration of Person class from line 11
+        // Test finding the declaration of Person class from line 12
         var realWorkspaceService = new RoslynWorkspaceService(
             new Mock<ILogger<RoslynWorkspaceService>>().Object);
         
@@ -75,11 +75,11 @@ public partial class RoslynToolTests
         var testSolutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
         testSolutionPath = Path.GetFullPath(testSolutionPath);
 
-        // Test finding declaration of Person class on line 11
+        // Test finding declaration of Person class on line 12
         var result = await realRoslynTool.FindSymbolDeclaration(
             testSolutionPath,
             "Program.cs",
-            11, // Line with 'public class Person'
+            12, // Line with 'public class Person'
             "Person"); // The class name
 
         // Verify the result contains declaration information
@@ -96,8 +96,8 @@ public partial class RoslynToolTests
             "Should have a declaration section");
         Assert.That(result, Does.Contain("File:") & Does.Contain("Program.cs"), 
             "Should show the file containing the declaration");
-        Assert.That(result, Does.Contain("Line: 11"), 
-            "Should show line 11 as the declaration location");
+        Assert.That(result, Does.Contain("Line: 12"), 
+            "Should show line 12 as the declaration location");
         
         // Should contain type documentation
         Assert.That(result, Does.Contain("Type Documentation:"), 
@@ -107,9 +107,9 @@ public partial class RoslynToolTests
     }
 
     [Test]
-    public async Task FindSymbolDeclaration_WithNameProperty_Line17_FindsPropertyDeclaration()
+    public async Task FindSymbolDeclaration_WithNameProperty_Line18_FindsPropertyDeclaration()
     {
-        // Test finding the declaration of Name property from line 17
+        // Test finding the declaration of Name property from line 18
         var realWorkspaceService = new RoslynWorkspaceService(
             new Mock<ILogger<RoslynWorkspaceService>>().Object);
         
@@ -118,11 +118,11 @@ public partial class RoslynToolTests
         var testSolutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
         testSolutionPath = Path.GetFullPath(testSolutionPath);
 
-        // Test finding declaration of Name property on line 17
+        // Test finding declaration of Name property on line 18
         var result = await realRoslynTool.FindSymbolDeclaration(
             testSolutionPath,
             "Program.cs",
-            17, // Line with 'public string Name { get; set; }'
+            18, // Line with 'public string Name { get; set; }'
             "Name"); // The property name
 
         // Verify the result contains declaration information
@@ -135,8 +135,8 @@ public partial class RoslynToolTests
             "Should identify it as a Property");
         
         // Should contain declaration location
-        Assert.That(result, Does.Contain("Line: 17"), 
-            "Should show line 17 as the declaration location");
+        Assert.That(result, Does.Contain("Line: 18"), 
+            "Should show line 18 as the declaration location");
         
         // Should contain member information
         Assert.That(result, Does.Contain("Member of: TestProject.Person"), 
@@ -148,9 +148,9 @@ public partial class RoslynToolTests
     }
 
     [Test]
-    public async Task FindSymbolDeclaration_WithAFieldField_Line31_FindsFieldDeclaration()
+    public async Task FindSymbolDeclaration_WithAFieldField_Line32_FindsFieldDeclaration()
     {
-        // Test finding the declaration of aField field from line 31
+        // Test finding the declaration of aField field from line 32
         var realWorkspaceService = new RoslynWorkspaceService(
             new Mock<ILogger<RoslynWorkspaceService>>().Object);
         
@@ -159,11 +159,11 @@ public partial class RoslynToolTests
         var testSolutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
         testSolutionPath = Path.GetFullPath(testSolutionPath);
 
-        // Test finding declaration of aField field on line 31
+        // Test finding declaration of aField field on line 32
         var result = await realRoslynTool.FindSymbolDeclaration(
             testSolutionPath,
             "Program.cs",
-            31, // Line with 'public int aField = 0;'
+            32, // Line with 'public int aField = 0;'
             "aField"); // The field name
 
         // Verify the result contains declaration information
@@ -176,8 +176,8 @@ public partial class RoslynToolTests
             "Should identify it as a Field");
         
         // Should contain declaration location
-        Assert.That(result, Does.Contain("Line: 31"), 
-            "Should show line 31 as the declaration location");
+        Assert.That(result, Does.Contain("Line: 32"), 
+            "Should show line 32 as the declaration location");
         
         // Should contain member information
         Assert.That(result, Does.Contain("Member of: TestProject.Person"), 
@@ -189,9 +189,9 @@ public partial class RoslynToolTests
     }
 
     [Test]
-    public async Task FindSymbolDeclaration_WithPersonVariable_Line52_FindsVariableDeclaration()
+    public async Task FindSymbolDeclaration_WithPersonVariable_Line53_FindsVariableDeclaration()
     {
-        // Test finding the declaration of person variable used on line 59, declared on line 52
+        // Test finding the declaration of person variable used on line 60, declared on line 53
         var realWorkspaceService = new RoslynWorkspaceService(
             new Mock<ILogger<RoslynWorkspaceService>>().Object);
         
@@ -200,11 +200,11 @@ public partial class RoslynToolTests
         var testSolutionPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "TestSln", "TestSln.sln");
         testSolutionPath = Path.GetFullPath(testSolutionPath);
 
-        // Test finding declaration of person variable from its usage on line 59
+        // Test finding declaration of person variable from its usage on line 60
         var result = await realRoslynTool.FindSymbolDeclaration(
             testSolutionPath,
             "Program.cs",
-            59, // Line with usage: 'string json = JsonConvert.SerializeObject(person, Formatting.Indented);'
+            60, // Line with usage: 'string json = JsonConvert.SerializeObject(person, Formatting.Indented);'
             "person"); // The variable name
 
         // Verify the result contains declaration information
@@ -217,8 +217,8 @@ public partial class RoslynToolTests
             "Should identify it as a Local variable");
         
         // Should contain declaration location
-        Assert.That(result, Does.Contain("Line: 52"), 
-            "Should show line 52 as the declaration location");
+        Assert.That(result, Does.Contain("Line: 53"), 
+            "Should show line 53 as the declaration location");
         
         // Should contain variable information
         Assert.That(result, Does.Contain("Local Variable Information:"), 
@@ -277,7 +277,7 @@ public partial class RoslynToolTests
         var result = await realRoslynTool.FindSymbolDeclaration(
             testSolutionPath,
             "Program.cs",
-            11, // Valid line
+            12, // Valid line
             "NonExistentToken"); // Token that doesn't exist
 
         // Verify the result indicates an error
@@ -305,7 +305,7 @@ public partial class RoslynToolTests
         var result = await realRoslynTool.FindSymbolDeclaration(
             testSolutionPath,
             "Program.cs",
-            48, // Line with 'Console.WriteLine(...)'
+            49, // Line with 'Console.WriteLine(...)'
             "Console"); // System.Console
 
         // Verify the result contains metadata information

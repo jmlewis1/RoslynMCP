@@ -72,10 +72,10 @@ public class Program
 
         var app = builder.Build();
         ConfigureApp(app);
-
-        LogServerConfiguration(shouldUseStdio, port, app);
         
-        await app.RunAsync();
+        Task appTask = app.RunAsync();
+        LogServerConfiguration(shouldUseStdio, port, app);
+        await appTask;
     }
 
     private static WebApplicationBuilder CreateWebApplicationBuilder(bool shouldUseHttp, int port)
@@ -89,6 +89,8 @@ public class Program
             .WriteTo.Console()
             .CreateBootstrapLogger();
 
+        builder.Logging.ClearProviders();
+
         // Replace default logging with Serilog
         builder.Host.UseSerilog((context, services, configuration) =>
         {
@@ -99,13 +101,10 @@ public class Program
                 .WriteTo.Console();
         });
 
-        builder.Logging.ClearProviders();
-        builder.Logging.AddConsole();
-
         // Set port for HTTP transport
         if (shouldUseHttp)
         {
-            builder.WebHost.UseUrls($"http://localhost:{port}");
+            builder.WebHost.UseUrls($"http://+:{port}");
         }
 
         return builder;
