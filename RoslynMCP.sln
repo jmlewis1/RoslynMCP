@@ -11,7 +11,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{02EA681E
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RoslynMCP.Tests", "Tests\RoslynMCP.Tests\RoslynMCP.Tests.csproj", "{32BECE51-8D84-F2A8-F829-17CFCA8A6EAC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileWatcherTest", "FileWatcherTest\FileWatcherTest.csproj", "{42BECE51-8D84-F2A8-F829-17CFCA8A6EAD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileWatcherTest", "Tests\FileWatcherTest\FileWatcherTest.csproj", "{50D76FA6-8C12-E0D9-20FD-3A697BE92FFF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -31,16 +31,17 @@ Global
 		{32BECE51-8D84-F2A8-F829-17CFCA8A6EAC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{32BECE51-8D84-F2A8-F829-17CFCA8A6EAC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{32BECE51-8D84-F2A8-F829-17CFCA8A6EAC}.Release|Any CPU.Build.0 = Release|Any CPU
-		{42BECE51-8D84-F2A8-F829-17CFCA8A6EAD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{42BECE51-8D84-F2A8-F829-17CFCA8A6EAD}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{42BECE51-8D84-F2A8-F829-17CFCA8A6EAD}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{42BECE51-8D84-F2A8-F829-17CFCA8A6EAD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{50D76FA6-8C12-E0D9-20FD-3A697BE92FFF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{50D76FA6-8C12-E0D9-20FD-3A697BE92FFF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{50D76FA6-8C12-E0D9-20FD-3A697BE92FFF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{50D76FA6-8C12-E0D9-20FD-3A697BE92FFF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{32BECE51-8D84-F2A8-F829-17CFCA8A6EAC} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{50D76FA6-8C12-E0D9-20FD-3A697BE92FFF} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {C9F1A6D4-98DF-4E1F-8FF7-4F249B3E8396}
